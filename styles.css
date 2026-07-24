@@ -1,0 +1,1363 @@
+:root {
+  color-scheme: light;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  --ink: #171918;
+  --muted: #747a76;
+  --paper: #f9faf8;
+  --line: rgba(23, 25, 24, 0.11);
+  --orange: #e86b31;
+  --red: #ad3034;
+  --fantasy-sheet: url("assets/ui/fantasy.png");
+  --inventory-panel: url("assets/ui/inventory-panel.png");
+  --inventory-select: url("assets/ui/inventory-select.png");
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #e9ebe7;
+}
+
+body {
+  overscroll-behavior: none;
+  user-select: none;
+}
+
+button {
+  color: inherit;
+  font: inherit;
+}
+
+.game-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 480px;
+  overflow: hidden;
+  background: var(--paper);
+  isolation: isolate;
+}
+
+#game-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  outline: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.topbar {
+  position: absolute;
+  z-index: 3;
+  top: max(22px, env(safe-area-inset-top));
+  left: max(24px, env(safe-area-inset-left));
+  right: max(24px, env(safe-area-inset-right));
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  pointer-events: none;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.brand-mark {
+  width: 11px;
+  height: 34px;
+  border-radius: 2px;
+  background: linear-gradient(to bottom, var(--orange) 0 54%, var(--red) 54%);
+  box-shadow: 4px 0 0 rgba(23, 25, 24, 0.08);
+}
+
+.brand p,
+.brand span {
+  margin: 0;
+}
+
+.brand p {
+  color: var(--ink);
+  font-family: "Courier New", monospace;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 0.11em;
+  line-height: 1.05;
+}
+
+.brand div > span {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.fantasy-health {
+  position: relative;
+  width: 136px;
+  height: 42px;
+  margin-left: 10px;
+  background-image: var(--fantasy-sheet);
+  background-position: -10px -6px;
+  background-size: 512px 512px;
+  image-rendering: pixelated;
+}
+
+.health-loss {
+  position: absolute;
+  top: 24px;
+  right: 14px;
+  width: var(--health-loss, 0);
+  height: 10px;
+  background: #231007;
+  transition: width 160ms steps(5);
+}
+
+.fantasy-health span {
+  position: absolute;
+  top: 14px;
+  right: 22px;
+  color: #ffe1a4;
+  font: 900 8px/1 "Courier New", monospace;
+  letter-spacing: 0.08em;
+  text-shadow: 1px 1px 0 #3d0c0b;
+}
+
+.top-actions {
+  display: flex;
+  justify-self: end;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  pointer-events: auto;
+}
+
+.fantasy-orb {
+  display: block;
+  width: 50px;
+  height: 54px;
+  background-image: var(--fantasy-sheet);
+  background-size: 512px 512px;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 5px 6px rgba(47, 25, 15, 0.16));
+}
+
+.fire-orb {
+  background-position: -390px -2px;
+}
+
+.blue-orb {
+  margin-left: -5px;
+  background-position: -450px -2px;
+}
+
+.top-actions .fantasy-orb {
+  position: relative;
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background-color: transparent;
+  color: #fff8d5;
+  cursor: not-allowed;
+  font: 900 8px/1 "Courier New", monospace;
+  opacity: 0.48;
+  filter:
+    grayscale(1)
+    brightness(0.42)
+    drop-shadow(0 3px 4px rgba(47, 25, 15, 0.12));
+  transition:
+    filter 300ms steps(4),
+    opacity 300ms ease,
+    transform 300ms steps(4);
+}
+
+.top-actions .fantasy-orb::after {
+  position: absolute;
+  right: 2px;
+  bottom: 3px;
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  border: 1px solid #542514;
+  border-radius: 3px;
+  background: #fff7d7;
+  box-shadow: 1px 2px 0 rgba(63, 25, 12, 0.42);
+  color: #5b2b18;
+  content: attr(data-shortcut);
+}
+
+.top-actions .fantasy-orb.collected {
+  cursor: crosshair;
+  opacity: 1;
+  filter:
+    grayscale(0)
+    brightness(1.1)
+    drop-shadow(0 0 8px rgba(255, 197, 70, 0.55));
+  transform: translateY(-2px);
+}
+
+.top-actions .fantasy-orb.collected:hover,
+.top-actions .fantasy-orb.collected:focus-visible {
+  outline: none;
+  filter:
+    grayscale(0)
+    brightness(1.25)
+    drop-shadow(0 0 11px rgba(255, 197, 70, 0.72));
+  transform: translateY(-4px) scale(1.04);
+}
+
+.top-actions .blue-orb.collected {
+  filter:
+    grayscale(0)
+    brightness(1.1)
+    drop-shadow(0 0 8px rgba(74, 163, 255, 0.62));
+}
+
+.top-actions .blue-orb.collected:hover,
+.top-actions .blue-orb.collected:focus-visible {
+  filter:
+    grayscale(0)
+    brightness(1.25)
+    drop-shadow(0 0 11px rgba(74, 163, 255, 0.8));
+}
+
+.top-actions .fantasy-orb.cooling {
+  cursor: progress;
+  opacity: 0.68;
+  filter:
+    grayscale(0.35)
+    brightness(0.78)
+    drop-shadow(0 2px 4px rgba(47, 25, 15, 0.18));
+  transform: translateY(1px) scale(0.94);
+}
+
+.top-actions .fantasy-orb.cooling::after {
+  background: #5b2b18;
+  color: #ffe2a3;
+}
+
+.icon-button {
+  width: 38px;
+  height: 38px;
+  padding: 9px;
+  border: 1px solid rgba(23, 25, 24, 0.1);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.76);
+  cursor: pointer;
+  pointer-events: auto;
+  backdrop-filter: blur(10px);
+  transition:
+    transform 140ms ease,
+    background 140ms ease;
+}
+
+.icon-button:hover {
+  transform: translateY(-2px);
+  background: #fff;
+}
+
+.icon-button svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: square;
+  stroke-width: 1.7;
+}
+
+.controls-panel {
+  position: absolute;
+  z-index: 3;
+  bottom: max(22px, env(safe-area-inset-bottom));
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 11px 16px;
+  border: 2px solid #7f3c21;
+  border-radius: 6px;
+  background:
+    linear-gradient(rgba(154, 75, 35, 0.91), rgba(112, 50, 25, 0.93)),
+    var(--fantasy-sheet);
+  box-shadow:
+    inset 0 0 0 2px #d59a50,
+    inset 0 0 0 4px #522314,
+    0 10px 28px rgba(47, 25, 15, 0.18);
+  transform: translateX(-50%);
+}
+
+.control-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.control-title {
+  color: #f1c583;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.key-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #fff0c6;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+kbd {
+  display: grid;
+  min-width: 23px;
+  height: 23px;
+  place-items: center;
+  padding: 0 5px;
+  border: 1px solid #cfd3cf;
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: #fff;
+  color: #323633;
+  font: 800 10px/1 "Courier New", monospace;
+  box-shadow: 0 1px 2px rgba(23, 25, 24, 0.04);
+}
+
+.mouse-key {
+  position: relative;
+  display: inline-block;
+  width: 20px;
+  height: 25px;
+  border: 2px solid #f0c47e;
+  border-radius: 9px 9px 11px 11px;
+  background: #492115;
+  box-shadow:
+    inset 0 0 0 1px #9e5830,
+    1px 2px 0 #3a170e;
+}
+
+.mouse-key::before {
+  position: absolute;
+  top: 0;
+  bottom: 11px;
+  left: 50%;
+  width: 1px;
+  background: #f0c47e;
+  content: "";
+}
+
+.mouse-key i {
+  position: absolute;
+  top: 2px;
+  width: 7px;
+  height: 8px;
+  border-radius: 4px 4px 1px 1px;
+  background: var(--orange);
+}
+
+.mouse-left i {
+  left: 2px;
+}
+
+.mouse-right i {
+  right: 2px;
+  background: #cf4547;
+}
+
+kbd.wide {
+  padding-inline: 8px;
+}
+
+kbd.accent {
+  border-color: #db8c67;
+  background: #fff8f3;
+  color: #b44e22;
+}
+
+kbd.secondary {
+  border-color: #c78183;
+  background: #fff7f7;
+  color: #8f292d;
+}
+
+.or {
+  margin-inline: 2px;
+  color: #9a9e9b;
+  font-size: 9px;
+}
+
+.divider {
+  width: 1px;
+  height: 24px;
+  background: rgba(255, 224, 168, 0.28);
+}
+
+.potion-belt {
+  position: absolute;
+  z-index: 3;
+  right: 26px;
+  bottom: 42px;
+  display: flex;
+  align-items: end;
+  gap: 1px;
+  height: 52px;
+  padding: 5px 7px 2px;
+  border-bottom: 3px solid #77391f;
+  pointer-events: none;
+}
+
+.potion {
+  display: block;
+  width: 28px;
+  height: 50px;
+  background-image: var(--fantasy-sheet);
+  background-size: 512px 512px;
+  image-rendering: pixelated;
+  filter: drop-shadow(2px 3px 0 rgba(47, 25, 15, 0.18));
+}
+
+.potion-blue {
+  background-position: -356px -462px;
+}
+
+.potion-red {
+  background-position: -386px -462px;
+}
+
+.potion-gold {
+  background-position: -416px -462px;
+}
+
+.potion-green {
+  background-position: -450px -462px;
+}
+
+.game-menu {
+  position: absolute;
+  z-index: 8;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 43%, rgba(255, 244, 214, 0.22), transparent 38%),
+    rgba(35, 30, 26, 0.58);
+  opacity: 1;
+  backdrop-filter: blur(5px) saturate(0.72);
+  transition:
+    opacity 220ms ease,
+    visibility 220ms ease;
+}
+
+.game-menu.hidden {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.menu-glow {
+  position: absolute;
+  width: 560px;
+  height: 560px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, rgba(236, 152, 77, 0.2), transparent 58%);
+  pointer-events: none;
+}
+
+.menu-panel {
+  position: relative;
+  width: 284px;
+  height: 448px;
+  padding: 150px 45px 42px;
+  background-image: var(--fantasy-sheet);
+  background-position: -336px -192px;
+  background-size: 1024px 1024px;
+  color: #fff0c6;
+  image-rendering: pixelated;
+  filter:
+    drop-shadow(0 2px 0 rgba(255, 218, 149, 0.16))
+    drop-shadow(0 22px 26px rgba(30, 14, 8, 0.42));
+  text-align: center;
+}
+
+.menu-emblems {
+  position: absolute;
+  z-index: 2;
+  top: 48px;
+  right: 12px;
+  left: 12px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.menu-emblems .fantasy-orb {
+  flex: 0 0 auto;
+  transform: scale(0.72);
+}
+
+.menu-emblems .blue-orb {
+  margin-left: 0;
+}
+
+.panel-title-plaque {
+  position: absolute;
+  z-index: 1;
+  top: 22px;
+  left: 50%;
+  display: flex;
+  width: 180px;
+  height: 116px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 14px 15px;
+  background-image: var(--fantasy-sheet);
+  background-position: -552px -8px;
+  background-size: 1024px 1024px;
+  color: #fff2c5;
+  filter: drop-shadow(0 6px 4px rgba(48, 21, 11, 0.32));
+  image-rendering: pixelated;
+  transform: translateX(-50%);
+}
+
+.panel-title-plaque.danger {
+  top: 30px;
+  filter:
+    saturate(0.8)
+    sepia(0.12)
+    drop-shadow(0 6px 4px rgba(48, 12, 9, 0.38));
+}
+
+.menu-eyebrow {
+  margin: 0 0 5px;
+  color: #f8cf8d;
+  font: 900 7px/1 "Courier New", monospace;
+  letter-spacing: 0.16em;
+  text-shadow: 1px 1px 0 #562413;
+  text-transform: uppercase;
+}
+
+.menu-panel h1 {
+  margin: 0;
+  color: #fff8dd;
+  font: 900 15px/1 "Courier New", monospace;
+  letter-spacing: 0.03em;
+  text-shadow:
+    2px 2px 0 #4a1f13,
+    -1px -1px 0 #4a1f13;
+  text-transform: uppercase;
+}
+
+.menu-rule {
+  width: 72%;
+  height: 2px;
+  margin: 0 auto 18px;
+  background: linear-gradient(90deg, transparent, #edbd72 18% 82%, transparent);
+  box-shadow: 0 1px 0 #5e2a18;
+}
+
+.menu-actions {
+  display: grid;
+  gap: 11px;
+}
+
+.menu-actions[hidden] {
+  display: none;
+}
+
+.menu-button {
+  position: relative;
+  width: 100%;
+  min-height: 41px;
+  padding: 10px 14px;
+  border: 2px solid #4c1f13;
+  border-radius: 2px;
+  background:
+    linear-gradient(rgba(169, 84, 38, 0.88), rgba(111, 48, 23, 0.9)),
+    var(--fantasy-sheet);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 226, 162, 0.38),
+    inset 0 0 0 2px #d69a50,
+    0 3px 0 #3d160e;
+  color: #ffe9b7;
+  cursor: pointer;
+  font: 900 9px/1 "Courier New", monospace;
+  letter-spacing: 0.1em;
+  text-shadow: 1px 1px 0 #42180e;
+  text-transform: uppercase;
+  transition:
+    filter 120ms ease,
+    transform 120ms ease;
+}
+
+.menu-button:hover,
+.menu-button:focus-visible {
+  filter: brightness(1.2) saturate(1.08);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.menu-button:active {
+  box-shadow:
+    inset 0 0 0 2px #d69a50,
+    0 1px 0 #3d160e;
+  transform: translateY(2px);
+}
+
+.menu-button.primary {
+  color: #fff7d7;
+  background:
+    linear-gradient(rgba(204, 103, 41, 0.92), rgba(139, 55, 25, 0.94)),
+    var(--fantasy-sheet);
+}
+
+.menu-button-gem {
+  position: absolute;
+  top: 50%;
+  left: 10px;
+  width: 8px;
+  height: 8px;
+  border: 1px solid #3b160d;
+  background: #efbd62;
+  box-shadow:
+    inset 1px 1px 0 #fff0a5,
+    1px 1px 0 #3e180f;
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.menu-help {
+  display: grid;
+  gap: 9px;
+  text-align: left;
+}
+
+.menu-help[hidden] {
+  display: none;
+}
+
+.help-row {
+  display: grid;
+  gap: 3px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid rgba(255, 222, 164, 0.22);
+}
+
+.help-row span {
+  color: #eab66f;
+  font: 800 8px/1 "Courier New", monospace;
+  text-transform: uppercase;
+}
+
+.help-row strong {
+  color: #fff2c9;
+  font: 900 10px/1 "Courier New", monospace;
+  letter-spacing: 0.08em;
+}
+
+.menu-button.compact {
+  width: 100px;
+  min-height: 32px;
+  margin: 4px auto 0;
+}
+
+.menu-footer {
+  position: absolute;
+  right: 0;
+  bottom: 27px;
+  left: 0;
+  margin: 0;
+  color: rgba(255, 231, 187, 0.7);
+  font: 800 7px/1 "Courier New", monospace;
+  letter-spacing: 0.13em;
+}
+
+.game-over-screen {
+  position: absolute;
+  z-index: 9;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 43%, rgba(150, 48, 37, 0.18), transparent 38%),
+    rgba(30, 16, 13, 0.72);
+  opacity: 1;
+  backdrop-filter: blur(6px) saturate(0.6);
+  transition:
+    opacity 260ms ease,
+    visibility 260ms ease;
+}
+
+.game-over-screen.hidden {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.game-over-glow {
+  position: absolute;
+  width: 480px;
+  height: 480px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(182, 50, 42, 0.2), transparent 65%);
+}
+
+.game-over-panel {
+  position: relative;
+  width: 284px;
+  height: 356px;
+  padding: 158px 45px 32px;
+  background-image: var(--fantasy-sheet);
+  background-position: -660px -200px;
+  background-size: 1024px 1024px;
+  color: #fff0c6;
+  image-rendering: pixelated;
+  filter:
+    drop-shadow(0 2px 0 rgba(255, 207, 144, 0.12))
+    drop-shadow(0 24px 28px rgba(24, 8, 6, 0.5));
+  text-align: center;
+}
+
+.game-over-emblem {
+  position: absolute;
+  z-index: 2;
+  top: -27px;
+  left: 50%;
+  width: 50px;
+  height: 54px;
+  transform: translateX(-50%);
+}
+
+.game-over-eyebrow {
+  margin: 0 0 5px;
+  color: #f3b37b;
+  font: 900 7px/1 "Courier New", monospace;
+  letter-spacing: 0.16em;
+  text-shadow: 1px 1px 0 #481811;
+  text-transform: uppercase;
+}
+
+.game-over-panel h2 {
+  margin: 0;
+  color: #fff0ca;
+  font: 900 17px/1 "Courier New", monospace;
+  letter-spacing: 0.04em;
+  text-shadow:
+    2px 2px 0 #481811,
+    -1px -1px 0 #481811;
+  text-transform: uppercase;
+}
+
+.game-over-rule {
+  width: 72%;
+  height: 2px;
+  margin: 0 auto 15px;
+  background: linear-gradient(90deg, transparent, #d47a4e 18% 82%, transparent);
+  box-shadow: 0 1px 0 #4d1c12;
+}
+
+.game-over-stats {
+  margin: 0 0 16px;
+  color: #e9bd83;
+  font: 900 8px/1.4 "Courier New", monospace;
+  letter-spacing: 0.08em;
+}
+
+.game-over-actions {
+  display: grid;
+  gap: 11px;
+}
+
+.inventory-screen {
+  position: absolute;
+  z-index: 7;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle, rgba(255, 208, 126, 0.08), transparent 38%),
+    rgba(27, 22, 19, 0.52);
+  opacity: 1;
+  backdrop-filter: blur(4px) saturate(0.76);
+  transition:
+    opacity 180ms ease,
+    visibility 180ms ease;
+}
+
+.inventory-screen.hidden {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.inventory-window {
+  width: 406px;
+  box-sizing: content-box;
+  padding: 15px 16px 13px;
+  border: 2px solid #3e1c12;
+  border-radius: 5px;
+  background:
+    linear-gradient(145deg, rgba(116, 56, 29, 0.98), rgba(67, 29, 18, 0.98));
+  box-shadow:
+    inset 0 0 0 2px #d28f4d,
+    inset 0 0 0 5px #572719,
+    0 20px 30px rgba(27, 12, 7, 0.42);
+  filter: drop-shadow(0 3px 0 rgba(255, 212, 139, 0.1));
+}
+
+.inventory-header {
+  display: flex;
+  height: 49px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 5px 10px;
+  padding: 0 4px;
+  border-bottom: 1px solid rgba(255, 217, 151, 0.18);
+  color: #fff1c7;
+  text-shadow: 2px 2px 0 #4b2114;
+}
+
+.inventory-header span {
+  display: block;
+  margin-bottom: 3px;
+  color: #e9b66f;
+  font: 900 8px/1 "Courier New", monospace;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.inventory-header h2 {
+  margin: 0;
+  font: 900 20px/1 "Courier New", monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.inventory-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.inventory-header .inventory-capacity {
+  margin: 0;
+  color: #f3ce8f;
+  font: 900 9px/1 "Courier New", monospace;
+  letter-spacing: 0.08em;
+}
+
+.inventory-header button {
+  width: 34px;
+  height: 34px;
+  border: 2px solid #4b2114;
+  border-radius: 3px;
+  background: #d79d56;
+  box-shadow:
+    inset 0 0 0 2px #ffe0a0,
+    0 3px 0 #3d190f;
+  color: #542718;
+  cursor: pointer;
+  font: 900 12px/1 "Courier New", monospace;
+}
+
+.inventory-board {
+  position: relative;
+  width: 406px;
+  height: 272px;
+  background-image: var(--inventory-panel);
+  background-size: 406px 272px;
+  image-rendering: pixelated;
+}
+
+.inventory-profile {
+  position: absolute;
+  top: 8px;
+  left: 48px;
+  display: flex;
+  width: 104px;
+  height: 198px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 7px;
+  color: #63361e;
+  text-align: center;
+  text-shadow: 1px 1px 0 rgba(255, 231, 176, 0.7);
+  text-transform: uppercase;
+}
+
+.inventory-profile span,
+.inventory-profile small {
+  font: 900 7px/1 "Courier New", monospace;
+  letter-spacing: 0.11em;
+}
+
+.inventory-avatar-frame {
+  position: relative;
+  width: 104px;
+  height: 126px;
+  margin: 4px 0 2px;
+  overflow: hidden;
+}
+
+.inventory-avatar {
+  position: absolute;
+  top: 23px;
+  left: 8px;
+  display: block;
+  width: 96px;
+  height: 80px;
+  background-image: url("assets/sprites/player/idle/idle_down.png");
+  background-position: 0 0;
+  background-size: 768px 80px;
+  image-rendering: pixelated;
+  transform: scale(2);
+  transform-origin: center center;
+  animation: inventory-idle 1.2s steps(8) infinite;
+}
+
+.inventory-profile-stats {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.inventory-profile strong {
+  margin: 0;
+  color: #8d3e24;
+  font: 900 20px/1 "Courier New", monospace;
+}
+
+.inventory-item {
+  position: absolute;
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.inventory-item::before {
+  position: absolute;
+  inset: 0;
+  background-image: var(--inventory-select);
+  background-size: 40px 40px;
+  content: "";
+  image-rendering: pixelated;
+  opacity: 0;
+}
+
+.inventory-item:hover::before,
+.inventory-item:focus-visible::before {
+  opacity: 1;
+}
+
+.inventory-item:focus-visible {
+  outline: none;
+}
+
+.inventory-item.fire-item {
+  top: 6px;
+  left: 160px;
+}
+
+.inventory-item.blue-item {
+  top: 6px;
+  left: 200px;
+}
+
+.inventory-item.fox-item {
+  top: 6px;
+  left: 240px;
+}
+
+.inventory-gem-sprite {
+  display: block;
+  width: 29px;
+  height: 28px;
+  background-image: var(--fantasy-sheet);
+  background-size: 256px 256px;
+  image-rendering: pixelated;
+  transform: scale(1.08);
+}
+
+.inventory-gem-sprite.fire {
+  background-position: -194px -2px;
+}
+
+.inventory-gem-sprite.blue {
+  background-position: -225px -2px;
+}
+
+.inventory-fox-sprite {
+  display: block;
+  width: 32px;
+  height: 32px;
+  background-image: url("assets/sprites/companions/fox.png");
+  background-position: 0 0;
+  background-size: 448px 224px;
+  image-rendering: pixelated;
+  transform: scale(1.05);
+}
+
+.inventory-item.locked > span {
+  opacity: 0.24;
+  filter: grayscale(1) brightness(0.45);
+}
+
+.inventory-item.owned > span {
+  opacity: 1;
+  filter: none;
+}
+
+.inventory-item.owned::after {
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  color: #73341f;
+  content: "1";
+  font: 900 8px/1 "Courier New", monospace;
+  text-shadow: 1px 1px 0 #ffe4a5;
+}
+
+.inventory-legend {
+  position: relative;
+  min-height: 62px;
+  margin-top: 10px;
+  padding: 18px 13px 9px;
+  border: 2px solid #3e1c12;
+  border-radius: 3px;
+  background:
+    linear-gradient(180deg, rgba(229, 178, 105, 0.98), rgba(195, 130, 70, 0.98));
+  box-shadow:
+    inset 0 0 0 2px #ffe1a1,
+    inset 0 0 0 4px #9a562f,
+    0 3px 0 rgba(42, 17, 10, 0.45);
+  image-rendering: pixelated;
+}
+
+.inventory-legend-title {
+  position: absolute;
+  top: 6px;
+  left: 13px;
+  padding-left: 12px;
+  color: #71391f;
+  font: 900 7px/1 "Courier New", monospace;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.inventory-legend-title::before {
+  position: absolute;
+  top: 1px;
+  left: 0;
+  width: 6px;
+  height: 6px;
+  background: #8d3e24;
+  box-shadow: 1px 1px 0 #ffe1a1;
+  content: "";
+  transform: rotate(45deg);
+}
+
+.inventory-detail {
+  position: static;
+  display: grid;
+  min-height: 32px;
+  place-items: center;
+  padding: 0 10px;
+  color: #542819;
+  font: 900 8px/1.3 "Courier New", monospace;
+  letter-spacing: 0.05em;
+  text-align: center;
+  text-transform: uppercase;
+  white-space: normal;
+}
+
+.inventory-hint {
+  margin: 10px 0 0;
+  color: rgba(255, 240, 205, 0.72);
+  font: 800 8px/1 "Courier New", monospace;
+  letter-spacing: 0.09em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+@keyframes inventory-idle {
+  to {
+    background-position: -768px 0;
+  }
+}
+
+.inventory-hint kbd {
+  display: inline-grid;
+  width: 21px;
+  min-width: 21px;
+  height: 21px;
+  margin-right: 5px;
+  border-color: #a6673f;
+  background: #e7b873;
+  color: #582919;
+  vertical-align: middle;
+}
+
+.touch-controls {
+  display: none;
+}
+
+.loading-screen {
+  position: absolute;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  background: #f9faf8;
+  transition:
+    opacity 400ms ease,
+    visibility 400ms ease;
+}
+
+.loading-screen.hidden {
+  visibility: hidden;
+  opacity: 0;
+}
+
+.loader-mark {
+  width: 30px;
+  height: 30px;
+  border: 6px solid var(--ink);
+  border-top-color: var(--orange);
+  border-right-color: var(--red);
+  animation: turn 850ms steps(8) infinite;
+}
+
+.loading-screen p {
+  margin: 18px 0 10px;
+  color: var(--ink);
+  font: 800 11px/1 "Courier New", monospace;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.loading-track {
+  width: 170px;
+  height: 3px;
+  overflow: hidden;
+  background: #dedfdb;
+}
+
+.loading-track span {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--orange);
+  transition: width 150ms ease;
+}
+
+@keyframes turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (pointer: coarse), (max-width: 740px) {
+  .controls-panel {
+    display: none;
+  }
+
+  .topbar {
+    top: max(16px, env(safe-area-inset-top));
+    left: max(16px, env(safe-area-inset-left));
+    right: max(16px, env(safe-area-inset-right));
+    grid-template-columns: 1fr auto;
+  }
+
+  .fantasy-health {
+    position: absolute;
+    top: 38px;
+    left: 0;
+    margin: 0;
+    transform: scale(0.82);
+    transform-origin: top left;
+  }
+
+  .menu-emblems .fantasy-orb {
+    display: none;
+  }
+
+  .top-actions .fantasy-orb {
+    display: block;
+    margin-left: -10px;
+    transform: scale(0.72);
+  }
+
+  .top-actions .fantasy-orb.collected {
+    transform: scale(0.72) translateY(-2px);
+  }
+
+  .touch-controls {
+    position: absolute;
+    z-index: 4;
+    right: max(20px, env(safe-area-inset-right));
+    bottom: max(22px, env(safe-area-inset-bottom));
+    left: max(20px, env(safe-area-inset-left));
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    pointer-events: none;
+  }
+
+  .dpad {
+    position: relative;
+    width: 132px;
+    height: 132px;
+    pointer-events: auto;
+  }
+
+  .touch-button {
+    position: absolute;
+    width: 46px;
+    height: 46px;
+    border: 1px solid rgba(23, 25, 24, 0.12);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.78);
+    box-shadow: 0 5px 20px rgba(23, 25, 24, 0.08);
+    color: #555b57;
+    font-size: 12px;
+    backdrop-filter: blur(10px);
+  }
+
+  .touch-button:active,
+  .touch-button.active {
+    background: var(--ink);
+    color: #fff;
+    transform: scale(0.94);
+  }
+
+  .touch-button.up {
+    top: 0;
+    left: 43px;
+  }
+
+  .touch-button.left {
+    top: 43px;
+    left: 0;
+  }
+
+  .touch-button.down {
+    bottom: 0;
+    left: 43px;
+  }
+
+  .touch-button.right {
+    top: 43px;
+    right: 0;
+  }
+
+  .touch-attacks {
+    display: flex;
+    align-items: end;
+    gap: 11px;
+    pointer-events: auto;
+  }
+
+  .attack-button {
+    display: grid;
+    width: 66px;
+    height: 66px;
+    place-content: center;
+    gap: 2px;
+    border: 1px solid rgba(23, 25, 24, 0.12);
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.82);
+    box-shadow: 0 6px 24px rgba(23, 25, 24, 0.1);
+    color: #777b78;
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    backdrop-filter: blur(10px);
+  }
+
+  .attack-button span {
+    color: var(--orange);
+    font: 900 17px/1 "Courier New", monospace;
+  }
+
+  .attack-button.attack-two {
+    width: 56px;
+    height: 56px;
+    margin-bottom: 36px;
+  }
+
+  .attack-button.attack-two span {
+    color: var(--red);
+  }
+
+  .attack-button:active,
+  .attack-button.active {
+    background: var(--ink);
+    color: #fff;
+    transform: scale(0.94);
+  }
+
+  .potion-belt {
+    display: none;
+  }
+
+  .menu-panel {
+    transform: scale(0.9);
+  }
+
+  .game-over-panel {
+    transform: scale(0.9);
+  }
+
+  .inventory-window {
+    transform: scale(0.82);
+  }
+}
+
+@media (max-height: 560px) and (pointer: coarse) {
+  .brand div > span {
+    display: none;
+  }
+
+  .dpad {
+    transform: scale(0.82);
+    transform-origin: bottom left;
+  }
+
+  .touch-attacks {
+    transform: scale(0.86);
+    transform-origin: bottom right;
+  }
+}
+
+@media (max-width: 380px) {
+  .inventory-window {
+    transform: scale(0.68);
+  }
+}

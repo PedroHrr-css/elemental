@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta
+      name="description"
+      content="Cena top-down local com personagem animado, movimentação e dois ataques."
+    />
+    <title>Campo Branco — Elemental</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="game-shell">
+      <canvas
+        id="game-canvas"
+        tabindex="0"
+        aria-label="Campo branco. Use WASD ou as setas para mover, mouse para atacar e 1 ou 2 para arremessar poderes das gemas."
+      ></canvas>
+
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div>
+            <p>ELEMENTAL</p>
+            <span>Campo branco</span>
+          </div>
+          <div id="player-health" class="fantasy-health" role="img" aria-label="Vida: 100 de 100">
+            <i class="health-loss" aria-hidden="true"></i>
+            <span id="health-value">100</span>
+          </div>
+        </div>
+
+        <div class="top-actions">
+          <button
+            id="fire-gem"
+            class="fantasy-orb fire-orb"
+            type="button"
+            data-shortcut="1"
+            aria-label="Gema de fogo: não obtida"
+            aria-disabled="true"
+          ></button>
+          <button
+            id="blue-gem"
+            class="fantasy-orb blue-orb"
+            type="button"
+            data-shortcut="2"
+            aria-label="Gema d'água: não obtida"
+            aria-disabled="true"
+          ></button>
+          <button id="fullscreen-button" class="icon-button" type="button" aria-label="Tela cheia">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <section class="controls-panel" aria-label="Controles do jogo">
+        <div class="control-group">
+          <span class="control-title">Mover</span>
+          <div class="key-row">
+            <kbd>W</kbd>
+            <kbd>A</kbd>
+            <kbd>S</kbd>
+            <kbd>D</kbd>
+            <span class="or">ou</span>
+            <kbd class="wide">SETAS</kbd>
+          </div>
+        </div>
+        <span class="divider" aria-hidden="true"></span>
+        <div class="control-group">
+          <span class="control-title">Atacar</span>
+          <div class="key-row">
+            <span class="mouse-key mouse-left" aria-hidden="true"><i></i></span>
+            <span>rápido</span>
+            <span class="mouse-key mouse-right" aria-hidden="true"><i></i></span>
+            <span>forte</span>
+          </div>
+        </div>
+        <span class="divider" aria-hidden="true"></span>
+        <div class="control-group">
+          <span class="control-title">Poderes</span>
+          <div class="key-row">
+            <kbd>1</kbd>
+            <span>fogo</span>
+            <kbd>2</kbd>
+            <span>água</span>
+          </div>
+        </div>
+      </section>
+
+      <div class="touch-controls" aria-label="Controles por toque">
+        <div class="dpad">
+          <button class="touch-button up" type="button" data-key="ArrowUp" aria-label="Mover para cima">▲</button>
+          <button class="touch-button left" type="button" data-key="ArrowLeft" aria-label="Mover para esquerda">◀</button>
+          <button class="touch-button down" type="button" data-key="ArrowDown" aria-label="Mover para baixo">▼</button>
+          <button class="touch-button right" type="button" data-key="ArrowRight" aria-label="Mover para direita">▶</button>
+        </div>
+        <div class="touch-attacks">
+          <button class="attack-button attack-two" type="button" data-attack="attack2" aria-label="Ataque forte">
+            <span>II</span>
+            Forte
+          </button>
+          <button class="attack-button attack-one" type="button" data-attack="attack1" aria-label="Ataque rápido">
+            <span>I</span>
+            Rápido
+          </button>
+        </div>
+      </div>
+
+      <div class="potion-belt" aria-hidden="true">
+        <span class="potion potion-blue"></span>
+        <span class="potion potion-red"></span>
+        <span class="potion potion-gold"></span>
+        <span class="potion potion-green"></span>
+      </div>
+
+      <section id="game-menu" class="game-menu" aria-label="Menu principal">
+        <div class="menu-glow" aria-hidden="true"></div>
+        <div class="menu-panel">
+          <div class="menu-emblems" aria-hidden="true">
+            <span class="fantasy-orb fire-orb"></span>
+            <span class="fantasy-orb blue-orb"></span>
+          </div>
+          <div class="panel-title-plaque">
+            <p id="menu-eyebrow" class="menu-eyebrow">Menu principal</p>
+            <h1>Elemental</h1>
+          </div>
+          <div class="menu-rule" aria-hidden="true"></div>
+
+          <div id="menu-main-actions" class="menu-actions">
+            <button id="play-button" class="menu-button primary" type="button">
+              <span class="menu-button-gem" aria-hidden="true"></span>
+              <span id="play-label">Jogar</span>
+            </button>
+            <button id="controls-button" class="menu-button" type="button">
+              <span class="menu-button-gem" aria-hidden="true"></span>
+              Controles
+            </button>
+            <button id="menu-fullscreen-button" class="menu-button" type="button">
+              <span class="menu-button-gem" aria-hidden="true"></span>
+              Tela cheia
+            </button>
+          </div>
+
+          <div id="menu-help" class="menu-help" hidden>
+            <div class="help-row">
+              <span>Mover</span>
+              <strong>WASD / SETAS</strong>
+            </div>
+            <div class="help-row">
+              <span>Ataque rápido</span>
+              <strong>MOUSE 1</strong>
+            </div>
+            <div class="help-row">
+              <span>Ataque forte</span>
+              <strong>MOUSE 2</strong>
+            </div>
+            <div class="help-row">
+              <span>Poderes das gemas</span>
+              <strong>1 FOGO • 2 ÁGUA / CLIQUE</strong>
+            </div>
+            <div class="help-row">
+              <span>Abrir baú</span>
+              <strong>E / CLIQUE</strong>
+            </div>
+            <div class="help-row">
+              <span>Inventário</span>
+              <strong>I</strong>
+            </div>
+            <button id="back-button" class="menu-button compact" type="button">Voltar</button>
+          </div>
+
+          <p class="menu-footer">ESC • PAUSAR</p>
+        </div>
+      </section>
+
+      <section id="game-over-screen" class="game-over-screen hidden" aria-label="Fim de jogo">
+        <div class="game-over-glow" aria-hidden="true"></div>
+        <div class="game-over-panel">
+          <div class="game-over-emblem" aria-hidden="true">
+            <span class="fantasy-orb fire-orb"></span>
+          </div>
+          <div class="panel-title-plaque danger">
+            <p class="game-over-eyebrow">Fim de jogo</p>
+            <h2>Derrotado</h2>
+          </div>
+          <div class="game-over-rule" aria-hidden="true"></div>
+          <p id="game-over-stats" class="game-over-stats">0 SLIMES • 0 GEMAS</p>
+          <div class="game-over-actions">
+            <button id="retry-button" class="menu-button primary" type="button">
+              <span class="menu-button-gem" aria-hidden="true"></span>
+              Tentar novamente
+            </button>
+            <button id="game-over-menu-button" class="menu-button" type="button">
+              <span class="menu-button-gem" aria-hidden="true"></span>
+              Menu principal
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section id="inventory-screen" class="inventory-screen hidden" aria-label="Inventário">
+        <div class="inventory-window">
+          <header class="inventory-header">
+            <div>
+              <span>Mochila</span>
+              <h2>Inventário</h2>
+            </div>
+            <div class="inventory-header-actions">
+              <span id="inventory-capacity" class="inventory-capacity">0 / 3</span>
+              <button id="inventory-close-button" type="button" aria-label="Fechar inventário">I</button>
+            </div>
+          </header>
+
+          <div class="inventory-board">
+            <div class="inventory-profile">
+              <span>Elemental</span>
+              <div class="inventory-avatar-frame" aria-hidden="true">
+                <i class="inventory-avatar"></i>
+              </div>
+              <div class="inventory-profile-stats">
+                <strong id="inventory-kill-count">0</strong>
+                <small>slimes</small>
+              </div>
+            </div>
+
+            <button
+              id="inventory-fire-item"
+              class="inventory-item fire-item locked"
+              type="button"
+              aria-label="Gema de fogo: não obtida"
+              data-detail="Gema de fogo • arremessa 5 efeitos"
+            >
+              <span class="inventory-gem-sprite fire"></span>
+            </button>
+            <button
+              id="inventory-blue-item"
+              class="inventory-item blue-item locked"
+              type="button"
+              aria-label="Gema d'água: não obtida"
+              data-detail="Gema d'água • arremessa 5 efeitos"
+            >
+              <span class="inventory-gem-sprite blue"></span>
+            </button>
+            <button
+              id="inventory-fox-item"
+              class="inventory-item fox-item locked"
+              type="button"
+              aria-label="Raposa companheira: bloqueada"
+              data-detail="Raposa companheira"
+            >
+              <span class="inventory-fox-sprite"></span>
+            </button>
+          </div>
+          <div class="inventory-legend">
+            <span class="inventory-legend-title">Descrição</span>
+            <div id="inventory-detail" class="inventory-detail">
+              Colete as gemas para preencher a mochila
+            </div>
+          </div>
+          <p class="inventory-hint"><kbd>I</kbd> fechar inventário</p>
+        </div>
+      </section>
+
+      <div id="loading-screen" class="loading-screen">
+        <div class="loader-mark" aria-hidden="true"></div>
+        <p>Preparando o Elemental</p>
+        <div class="loading-track"><span id="loading-progress"></span></div>
+      </div>
+    </main>
+
+    <script src="game.js"></script>
+  </body>
+</html>
