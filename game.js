@@ -36,6 +36,19 @@
   const inventoryCampfireCount = document.querySelector("#inventory-campfire-count");
   const craftCampfireButton = document.querySelector("#craft-campfire-button");
   const inventoryDetail = document.querySelector("#inventory-detail");
+  const inputIndicators = new Map(
+    [...document.querySelectorAll("[data-input]")]
+      .map((indicator) => [indicator.dataset.input, indicator]),
+  );
+  const inputAliases = {
+    ArrowUp: "KeyW",
+    ArrowLeft: "KeyA",
+    ArrowDown: "KeyS",
+    ArrowRight: "KeyD",
+    Numpad1: "Digit1",
+    Numpad2: "Digit2",
+  };
+  const pressedInputs = new Set();
   const AUDIO_ROOT = "assets/audio";
   const chestSound = new Audio(`${AUDIO_ROOT}/treasure-open.wav`);
   chestSound.preload = "auto";
@@ -108,6 +121,13 @@
   const FRAME_HEIGHT = 80;
   const FRAME_COUNT = 8;
   const WORLD = { width: 1800, height: 1100, margin: 70 };
+  const LAKE = {
+    x: 1040,
+    y: 865,
+    radiusX: 250,
+    radiusY: 125,
+    tileSize: 32,
+  };
   const SCALE = 2.35;
   const SPEED = 230;
   const SLIME_FRAME_SIZE = 64;
@@ -131,13 +151,34 @@
   const TREE_REGROW_VARIANCE = 14;
   const TREE_GROW_DURATION = 3.4;
   const RUIN_VARIANTS = [
-    { sx: 353, sy: 269, sw: 94, sh: 72, scale: 1.35, radiusX: 54, radiusY: 28 },
-    { sx: 420, sy: 359, sw: 55, sh: 49, scale: 1.65, radiusX: 38, radiusY: 22 },
-    { sx: 3, sy: 430, sw: 57, sh: 44, scale: 1.7, radiusX: 42, radiusY: 19 },
-    { sx: 289, sy: 251, sw: 30, sh: 29, scale: 1.8, radiusX: 25, radiusY: 14 },
-    { sx: 416, sy: 194, sw: 32, sh: 57, scale: 1.75, radiusX: 25, radiusY: 17 },
-    { sx: 288, sy: 158, sw: 32, sh: 57, scale: 1.7, radiusX: 25, radiusY: 17 },
-    { sx: 227, sy: 303, sw: 26, sh: 40, scale: 1.85, radiusX: 24, radiusY: 15 },
+    {
+      sx: 353, sy: 269, sw: 94, sh: 72, scale: 1.35,
+      radiusX: 67, radiusY: 35, collisionOffsetY: -34,
+    },
+    {
+      sx: 420, sy: 359, sw: 55, sh: 49, scale: 1.65,
+      radiusX: 43, radiusY: 29, collisionOffsetY: -26,
+    },
+    {
+      sx: 3, sy: 430, sw: 57, sh: 44, scale: 1.7,
+      radiusX: 43, radiusY: 22, collisionOffsetY: -14,
+    },
+    {
+      sx: 289, sy: 251, sw: 30, sh: 29, scale: 1.8,
+      radiusX: 27, radiusY: 18, collisionOffsetY: -13,
+    },
+    {
+      sx: 416, sy: 194, sw: 32, sh: 57, scale: 1.75,
+      radiusX: 27, radiusY: 29, collisionOffsetY: -25,
+    },
+    {
+      sx: 288, sy: 158, sw: 32, sh: 57, scale: 1.7,
+      radiusX: 27, radiusY: 30, collisionOffsetY: -25,
+    },
+    {
+      sx: 227, sy: 303, sw: 26, sh: 40, scale: 1.85,
+      radiusX: 25, radiusY: 25, collisionOffsetY: -21,
+    },
   ];
   const waterSlimeAnimations = {
     idle: { frames: 4, fps: 6, loop: true },
@@ -221,6 +262,7 @@
       { x: WORLD.width / 2, y: WORLD.height / 2, radius: 205 },
       { x: WORLD.width / 2 - 270, y: WORLD.height / 2 + 125, radius: 110 },
       { x: WORLD.width / 2 + 285, y: WORLD.height / 2 + 145, radius: 110 },
+      { x: LAKE.x, y: LAKE.y, radius: LAKE.radiusX + 65 },
       ...trees.map((tree) => ({ x: tree.x, y: tree.y, radius: 112 })),
     ];
 
@@ -291,6 +333,11 @@
       drops: [],
       splashes: [],
     },
+    lake: {
+      animationTime: 0,
+      rippleTimer: 0,
+      ripples: [],
+    },
     trees: [
       { x: 300 + Math.random() * 80, y: 265 + Math.random() * 70, animationTime: Math.random() * 3, fps: 4.3 + Math.random() * 1.4, petalTimer: 2 + Math.random() * 5 },
       { x: 490 + Math.random() * 85, y: 830 + Math.random() * 75, animationTime: Math.random() * 3, fps: 4.3 + Math.random() * 1.4, petalTimer: 2 + Math.random() * 5 },
@@ -322,6 +369,8 @@
       invulnerable: 0,
       attackHitApplied: false,
       attackAim: { x: 0, y: 1 },
+      inWater: false,
+      waterDepth: 0,
     },
     enemy: {
       x: WORLD.width / 2 + 310,
@@ -411,7 +460,7 @@
     let loadedCount = 0;
     const waterSlimeFrameTotal = Object.values(waterSlimeAnimations)
       .reduce((total, animation) => total + animation.frames, 0);
-    const totalSprites = 25 + waterSlimeFrameTotal;
+    const totalSprites = 26 + waterSlimeFrameTotal;
     const registerLoaded = () => {
       loadedCount += 1;
       loadingProgress.style.width = `${(loadedCount / totalSprites) * 100}%`;
@@ -469,6 +518,12 @@
     jobs.push(
       loadImage("assets/sprites/environment/ruins-props.png").then((image) => {
         sprites.ruins = image;
+        registerLoaded();
+      }),
+    );
+    jobs.push(
+      loadImage("Water+.png").then((image) => {
+        sprites.lake = image;
         registerLoaded();
       }),
     );
@@ -751,6 +806,9 @@
     state.powerAim = { x: 0, y: 1 };
     state.petals = [];
     state.gems = [];
+    state.lake.animationTime = 0;
+    state.lake.rippleTimer = 0;
+    state.lake.ripples = [];
     state.trees.forEach((tree) => Object.assign(tree, {
       alive: true,
       health: tree.maxHealth,
@@ -775,6 +833,8 @@
       invulnerable: startImmediately ? 1.2 : 0,
       attackHitApplied: false,
       attackAim: { x: 0, y: 1 },
+      inWater: false,
+      waterDepth: 0,
     });
 
     Object.assign(state.enemy, {
@@ -814,6 +874,7 @@
     blueGemIcon.classList.remove("collected");
     fireGemIcon.classList.remove("cooling");
     blueGemIcon.classList.remove("cooling");
+    blueGemIcon.classList.remove("water-boosted");
     fireGemIcon.setAttribute("aria-label", "Gema de fogo: não obtida");
     blueGemIcon.setAttribute("aria-label", "Gema d'água: não obtida");
     fireGemIcon.setAttribute("aria-disabled", "true");
@@ -951,7 +1012,9 @@
       icon.setAttribute(
         "aria-label",
         owned
-          ? `${label}: arremessar poder (${shortcut})`
+          ? `${label}: arremessar poder (${shortcut})${
+            type === "water" && state.player.inWater ? " • intensificado pelo lago" : ""
+          }`
           : `${label}: não obtida`,
       );
     }
@@ -969,23 +1032,29 @@
       ? { x: aim.x / length, y: aim.y / length }
       : fallback;
     const config = powerConfig[type];
+    const waterBoosted = type === "water" && player.inWater;
+    const speedMultiplier = waterBoosted ? 1.22 : 1;
 
     player.direction = Math.abs(direction.x) > Math.abs(direction.y)
       ? (direction.x < 0 ? "left" : "right")
       : (direction.y < 0 ? "up" : "down");
     state.powerAim = direction;
-    state.powerCooldowns[type] = config.cooldown;
+    state.powerCooldowns[type] = config.cooldown * (waterBoosted ? 0.68 : 1);
     state.projectiles.push({
       type,
       variantIndex: nextProjectileVariant(type),
       x: player.x + direction.x * 38,
       y: player.y - 18 + direction.y * 22,
-      vx: direction.x * config.speed,
-      vy: direction.y * config.speed,
+      vx: direction.x * config.speed * speedMultiplier,
+      vy: direction.y * config.speed * speedMultiplier,
       direction,
       angle: Math.atan2(direction.y, direction.x),
       age: 0,
-      maxAge: config.maxAge,
+      maxAge: config.maxAge * (waterBoosted ? 1.18 : 1),
+      damageMultiplier: waterBoosted ? 1.6 : 1,
+      knockbackMultiplier: waterBoosted ? 1.35 : 1,
+      visualMultiplier: waterBoosted ? 1.34 : 1,
+      boosted: waterBoosted,
       active: true,
     });
     playSound(type === "fire" ? "fireSpell" : "waterSpell", 0.96 + Math.random() * 0.08);
@@ -993,7 +1062,7 @@
       player.x + direction.x * 34,
       player.y - 14 + direction.y * 18,
       config.accent,
-      6,
+      waterBoosted ? 12 : 6,
     );
     updatePowerButtons();
     return true;
@@ -1275,7 +1344,7 @@
   function resolveRuinCollisions(actor, actorCenterOffset = 8) {
     for (const ruin of state.ruins) {
       const config = RUIN_VARIANTS[ruin.variant];
-      const ruinCenterY = ruin.y - config.radiusY * 0.25;
+      const ruinCenterY = ruin.y + config.collisionOffsetY;
       const actorCenterY = actor.y - actorCenterOffset;
       const radiusX = config.radiusX + 16;
       const radiusY = config.radiusY + 10;
@@ -1293,6 +1362,71 @@
       actor.x = ruin.x + dx / normalizedDistance;
       actor.y = ruinCenterY + dy / normalizedDistance + actorCenterOffset;
     }
+  }
+
+  function lakeDistance(x, y) {
+    return Math.hypot(
+      (x - LAKE.x) / LAKE.radiusX,
+      (y - LAKE.y) / LAKE.radiusY,
+    );
+  }
+
+  function isPointInLake(x, y, margin = 0) {
+    const radiusX = LAKE.radiusX + margin;
+    const radiusY = LAKE.radiusY + margin * 0.55;
+    return (
+      ((x - LAKE.x) ** 2) / (radiusX ** 2)
+      + ((y - LAKE.y) ** 2) / (radiusY ** 2)
+      <= 1
+    );
+  }
+
+  function updateLake(dt) {
+    const player = state.player;
+    const previousInWater = player.inWater;
+    const distance = lakeDistance(player.x, player.y);
+    player.inWater = distance <= 0.96;
+    const targetDepth = distance <= 1
+      ? Math.min(1, Math.max(0.16, (1.04 - distance) / 0.24))
+      : 0;
+    const depthEase = 1 - Math.pow(0.0008, dt);
+    player.waterDepth += (targetDepth - player.waterDepth) * depthEase;
+
+    state.lake.animationTime += dt;
+    state.lake.rippleTimer -= dt;
+    for (const ripple of state.lake.ripples) ripple.age += dt;
+    state.lake.ripples = state.lake.ripples.filter(
+      (ripple) => ripple.age < ripple.duration,
+    );
+
+    if (player.inWater && !previousInWater) {
+      state.lake.ripples.push({
+        x: player.x,
+        y: player.y + 3,
+        age: 0,
+        duration: 0.85,
+        strength: 1.25,
+      });
+      spawnHitParticles(player.x, player.y + 2, "#a5eff2", 10);
+      playSound("waterSplash", 0.9);
+    }
+
+    if (player.inWater && player.moving && state.lake.rippleTimer <= 0) {
+      state.lake.rippleTimer = 0.24;
+      state.lake.ripples.push({
+        x: player.x,
+        y: player.y + 4,
+        age: 0,
+        duration: 0.62,
+        strength: 0.78,
+      });
+    }
+
+    blueGemIcon.classList.toggle(
+      "water-boosted",
+      player.inWater && state.inventory.blue,
+    );
+    if (player.inWater !== previousInWater) updatePowerButtons();
   }
 
   function updateCampfire(dt) {
@@ -1545,6 +1679,25 @@
         }
       }
 
+      if (projectile.type === "water") {
+        const litCampfire = state.placedCampfires.find((campfire) => (
+          campfire.lit
+          && Math.abs(campfire.x - projectile.x) <= 44
+          && Math.abs((campfire.y - 18) - projectile.y) <= 38
+        ));
+        if (litCampfire) {
+          projectile.active = false;
+          litCampfire.lit = false;
+          litCampfire.healing = false;
+          litCampfire.healProgress = 0;
+          litCampfire.particleTimer = 0;
+          playSound("waterSplash", 0.94 + Math.random() * 0.1);
+          spawnHitParticles(litCampfire.x, litCampfire.y - 18, "#9de7f5", 16);
+          spawnHitParticles(litCampfire.x, litCampfire.y - 27, "#c8d5d4", 10);
+          continue;
+        }
+      }
+
       const enemy = state.enemy;
       if (!enemy.alive || enemy.dying) continue;
       const dx = enemy.x - projectile.x;
@@ -1555,9 +1708,9 @@
       projectile.active = false;
       const config = powerConfig[projectile.type];
       hitEnemy(
-        config.damage,
+        config.damage * (projectile.damageMultiplier || 1),
         projectile.direction,
-        config.knockback,
+        config.knockback * (projectile.knockbackMultiplier || 1),
         config.color,
         config.accent,
       );
@@ -1772,7 +1925,10 @@
       player.step += SPEED * movementScale * dt;
       if (player.step - player.lastStepSound >= 88) {
         player.lastStepSound = player.step;
-        playSound("footstep", 0.94 + Math.random() * 0.12);
+        playSound(
+          player.inWater ? "waterSplash" : "footstep",
+          0.94 + Math.random() * 0.12,
+        );
       }
     }
 
@@ -1782,6 +1938,7 @@
     resolveCampfireCollision(player);
     player.x = Math.max(WORLD.margin, Math.min(WORLD.width - WORLD.margin, player.x));
     player.y = Math.max(WORLD.margin, Math.min(WORLD.height - WORLD.margin, player.y));
+    updateLake(dt);
     updateCampfire(dt);
 
     if (!attacking) {
@@ -1868,6 +2025,9 @@
       return false;
     }
     if (state.chests.some((chest) => Math.hypot(x - chest.x, y - chest.y) < 90)) {
+      return false;
+    }
+    if (isPointInLake(x, y, 48)) {
       return false;
     }
     return !state.placedCampfires.some(
@@ -1999,6 +2159,157 @@
     ctx.lineTo(0, -60);
     ctx.moveTo(0, 60);
     ctx.lineTo(0, 88);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function traceLakeShape() {
+    const center = worldToScreen(LAKE.x, LAKE.y);
+    const segments = 72;
+    ctx.beginPath();
+    for (let index = 0; index <= segments; index += 1) {
+      const angle = (index / segments) * Math.PI * 2;
+      const edgeVariation = (
+        1
+        + Math.sin(angle * 3 + 0.6) * 0.025
+        + Math.sin(angle * 7 - 1.1) * 0.018
+        + Math.cos(angle * 11 + 0.2) * 0.012
+      );
+      const x = center.x + Math.cos(angle) * LAKE.radiusX * edgeVariation;
+      const y = center.y + Math.sin(angle) * LAKE.radiusY * edgeVariation;
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+  }
+
+  function drawLake() {
+    const center = worldToScreen(LAKE.x, LAKE.y);
+    const tileSize = LAKE.tileSize;
+    const phaseX = Math.floor(state.lake.animationTime * 7) % tileSize;
+    const phaseY = Math.floor(state.lake.animationTime * 4) % tileSize;
+
+    ctx.save();
+    traceLakeShape();
+    ctx.fillStyle = "#72c8c4";
+    ctx.shadowColor = "rgba(55, 109, 106, .2)";
+    ctx.shadowBlur = 14;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "#c8e6d0";
+    ctx.lineWidth = 18;
+    ctx.stroke();
+
+    traceLakeShape();
+    ctx.clip();
+    const left = Math.floor((LAKE.x - LAKE.radiusX) / tileSize) * tileSize - tileSize;
+    const right = LAKE.x + LAKE.radiusX + tileSize;
+    const top = Math.floor((LAKE.y - LAKE.radiusY) / tileSize) * tileSize - tileSize;
+    const bottom = LAKE.y + LAKE.radiusY + tileSize;
+    for (let y = top; y <= bottom; y += tileSize) {
+      for (let x = left; x <= right; x += tileSize) {
+        const point = worldToScreen(x + phaseX, y + phaseY);
+        ctx.drawImage(
+          sprites.lake,
+          80,
+          0,
+          16,
+          16,
+          Math.round(point.x),
+          Math.round(point.y),
+          tileSize,
+          tileSize,
+        );
+      }
+    }
+
+    const depthShade = ctx.createLinearGradient(
+      center.x,
+      center.y - LAKE.radiusY,
+      center.x,
+      center.y + LAKE.radiusY,
+    );
+    depthShade.addColorStop(0, "rgba(213, 255, 223, .18)");
+    depthShade.addColorStop(0.55, "rgba(37, 126, 148, .08)");
+    depthShade.addColorStop(1, "rgba(26, 67, 112, .28)");
+    ctx.fillStyle = depthShade;
+    ctx.fillRect(
+      center.x - LAKE.radiusX - 20,
+      center.y - LAKE.radiusY - 20,
+      LAKE.radiusX * 2 + 40,
+      LAKE.radiusY * 2 + 40,
+    );
+
+    for (const ripple of state.lake.ripples) {
+      const point = worldToScreen(ripple.x, ripple.y);
+      const progress = ripple.age / ripple.duration;
+      const alpha = (1 - progress) * ripple.strength;
+      ctx.strokeStyle = `rgba(220, 255, 241, ${alpha * 0.82})`;
+      ctx.lineWidth = Math.max(1, 2 - progress);
+      ctx.beginPath();
+      ctx.ellipse(
+        point.x,
+        point.y,
+        12 + progress * 38,
+        4 + progress * 13,
+        0,
+        0,
+        Math.PI * 2,
+      );
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.save();
+    traceLakeShape();
+    ctx.strokeStyle = "rgba(42, 120, 137, .42)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([18, 9, 6, 11]);
+    ctx.lineDashOffset = -state.lake.animationTime * 13;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawPlayerWaterOverlay() {
+    const player = state.player;
+    if (player.waterDepth < 0.02) return;
+    const point = worldToScreen(player.x, player.y);
+    const depth = player.waterDepth;
+    const waterlineY = point.y + 5 - depth * 38;
+    const pulse = Math.sin(state.lake.animationTime * 5.4) * 2;
+
+    ctx.save();
+    traceLakeShape();
+    ctx.clip();
+    ctx.beginPath();
+    ctx.rect(point.x - 78, waterlineY, 156, 86);
+    ctx.clip();
+    const cover = ctx.createRadialGradient(
+      point.x,
+      point.y - 2,
+      6,
+      point.x,
+      point.y,
+      74,
+    );
+    cover.addColorStop(0, `rgba(73, 174, 190, ${0.9 * depth})`);
+    cover.addColorStop(0.55, `rgba(80, 187, 194, ${0.72 * depth})`);
+    cover.addColorStop(1, "rgba(80, 187, 194, 0)");
+    ctx.fillStyle = cover;
+    ctx.fillRect(point.x - 80, waterlineY, 160, 88);
+    ctx.restore();
+
+    ctx.save();
+    traceLakeShape();
+    ctx.clip();
+    ctx.strokeStyle = `rgba(225, 255, 241, ${0.44 + depth * 0.4})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(point.x, waterlineY + 1, 31 + pulse, 7 + depth * 2, 0, 0, Math.PI);
+    ctx.stroke();
+    ctx.strokeStyle = `rgba(34, 125, 153, ${depth * 0.42})`;
+    ctx.beginPath();
+    ctx.ellipse(point.x, waterlineY + 3, 38 - pulse, 10, 0, Math.PI, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
   }
@@ -2553,7 +2864,12 @@
     const sourceX = (variant.startColumn + frame) * EFFECT_FRAME_SIZE;
     const sourceY = variant.row * EFFECT_FRAME_SIZE;
     const config = powerConfig[projectile.type];
-    const drawSize = EFFECT_FRAME_SIZE * variant.scale * config.visualScale;
+    const drawSize = (
+      EFFECT_FRAME_SIZE
+      * variant.scale
+      * config.visualScale
+      * (projectile.visualMultiplier || 1)
+    );
     const flightProgress = Math.min(1, projectile.age / projectile.maxAge);
     const height = 10 + Math.sin(flightProgress * Math.PI) * 16;
     const sheet = projectile.type === "fire" ? sprites.fireEffects : sprites.waterEffects;
@@ -2782,8 +3098,10 @@
 
   function render() {
     drawArena();
+    if (state.loaded) drawLake();
     drawRainSplashes();
     if (state.loaded) drawEntities();
+    if (state.loaded) drawPlayerWaterOverlay();
     drawPlacementPreview();
     drawRainStreaks();
     drawKillProgress();
@@ -2807,7 +3125,24 @@
     state.keys.delete(code);
   }
 
+  function setInputIndicator(code, active) {
+    const inputCode = inputAliases[code] || code;
+    if (active) pressedInputs.add(code);
+    else pressedInputs.delete(code);
+    const inputIsPressed = [...pressedInputs]
+      .some((pressedCode) => (inputAliases[pressedCode] || pressedCode) === inputCode);
+    inputIndicators.get(inputCode)?.classList.toggle("active", inputIsPressed);
+  }
+
+  function clearInputIndicators() {
+    pressedInputs.clear();
+    for (const indicator of inputIndicators.values()) {
+      indicator.classList.remove("active");
+    }
+  }
+
   window.addEventListener("keydown", (event) => {
+    setInputIndicator(event.code, true);
     if (state.gameOver) return;
 
     if (event.code === "KeyI") {
@@ -2873,12 +3208,21 @@
     if (!event.repeat) pressKey(event.code);
   });
 
-  window.addEventListener("keyup", (event) => releaseKey(event.code));
-  window.addEventListener("blur", () => state.keys.clear());
+  window.addEventListener("keyup", (event) => {
+    releaseKey(event.code);
+    setInputIndicator(event.code, false);
+  });
+  window.addEventListener("blur", () => {
+    state.keys.clear();
+    clearInputIndicators();
+  });
   window.addEventListener("resize", resize);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) pauseAmbience();
     else resumeAmbience();
+  });
+  window.addEventListener("pointerdown", (event) => {
+    if (event.pointerType === "mouse") setInputIndicator(`Mouse${event.button}`, true);
   });
   canvas.addEventListener("pointerdown", (event) => {
     if (state.paused) return;
@@ -2908,6 +3252,10 @@
       if (event.button === 2) startAttack("attack2", aim.direction, aim.vector);
     }
   });
+  window.addEventListener("pointerup", (event) => {
+    if (event.pointerType === "mouse") setInputIndicator(`Mouse${event.button}`, false);
+  });
+  canvas.addEventListener("pointercancel", clearInputIndicators);
   canvas.addEventListener("pointermove", (event) => {
     if (event.pointerType !== "mouse" || state.paused) return;
     if (state.placementMode) {
