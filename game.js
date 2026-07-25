@@ -187,13 +187,24 @@
     hurt: { frames: 4, fps: 11, loop: false },
     die: { frames: 4, fps: 9, loop: false },
   };
+  const bossAnimations = {
+    idle: { folder: "01_demon_idle", prefix: "demon_idle", frames: 6, fps: 6, loop: true },
+    walk: { folder: "02_demon_walk", prefix: "demon_walk", frames: 12, fps: 10, loop: true },
+    cleave: { folder: "03_demon_cleave", prefix: "demon_cleave", frames: 15, fps: 12, loop: false },
+    hurt: { folder: "04_demon_take_hit", prefix: "demon_take_hit", frames: 5, fps: 11, loop: false },
+    death: { folder: "05_demon_death", prefix: "demon_death", frames: 22, fps: 11, loop: false },
+  };
+  const BOSS_MAX_HEALTH = 720;
+  const BOSS_SCALE = 1.38;
+  const BOSS_SPEED = 62;
+  const BOSS_SUMMON_INTERVAL = 3;
   const slimeTypes = {
     classic: {
       maxHealth: 100,
       speed: SLIME_SPEED,
       damage: 10,
       attackCooldown: 1.05,
-      label: "SLIME",
+      label: "SLIME DE FOGO",
       barColor: "#e3902f",
       hitColor: "#f5b33e",
     },
@@ -308,6 +319,53 @@
     return ruins;
   }
 
+  function createEnemy(x, y, type = "water") {
+    const typeConfig = slimeTypes[type];
+    return {
+      x,
+      y,
+      type,
+      health: typeConfig.maxHealth,
+      maxHealth: typeConfig.maxHealth,
+      alive: true,
+      dying: false,
+      deathTime: 0,
+      animationTime: 0,
+      hurtTime: 0,
+      moving: false,
+      facing: "left",
+      attacking: false,
+      attackTime: 0,
+      attackHitApplied: false,
+      attackCooldown: 0.7,
+      inWater: false,
+      lakeDamageTimer: 0,
+    };
+  }
+
+  function createBossState() {
+    return {
+      spawned: false,
+      alive: false,
+      dying: false,
+      defeated: false,
+      x: WORLD.width / 2,
+      y: WORLD.height / 2,
+      health: BOSS_MAX_HEALTH,
+      maxHealth: BOSS_MAX_HEALTH,
+      facing: "right",
+      action: "idle",
+      actionTime: 0,
+      attackKind: null,
+      attackApplied: false,
+      hurtTime: 0,
+      swordCooldown: 0,
+      fireWaveCooldown: 1.4,
+      summonCooldown: BOSS_SUMMON_INTERVAL,
+      moving: false,
+    };
+  }
+
   const state = {
     loaded: false,
     paused: true,
@@ -338,6 +396,11 @@
       rippleTimer: 0,
       ripples: [],
     },
+    enemySpawnCount: 0,
+    currentWaveSize: 1,
+    waveRespawnTime: 0,
+    boss: createBossState(),
+    bossFireWaves: [],
     trees: [
       { x: 300 + Math.random() * 80, y: 265 + Math.random() * 70, animationTime: Math.random() * 3, fps: 4.3 + Math.random() * 1.4, petalTimer: 2 + Math.random() * 5 },
       { x: 490 + Math.random() * 85, y: 830 + Math.random() * 75, animationTime: Math.random() * 3, fps: 4.3 + Math.random() * 1.4, petalTimer: 2 + Math.random() * 5 },
@@ -372,26 +435,9 @@
       inWater: false,
       waterDepth: 0,
     },
-    enemy: {
-      x: WORLD.width / 2 + 310,
-      y: WORLD.height / 2 - 90,
-      type: "water",
-      health: slimeTypes.water.maxHealth,
-      maxHealth: slimeTypes.water.maxHealth,
-      alive: true,
-      dying: false,
-      deathTime: 0,
-      animationTime: 0,
-      hurtTime: 0,
-      moving: false,
-      facing: "left",
-      attacking: false,
-      attackTime: 0,
-      attackHitApplied: false,
-      attackCooldown: 0.4,
-      respawnTime: 0,
-      spawnCount: 0,
-    },
+    enemies: [
+      createEnemy(WORLD.width / 2 + 310, WORLD.height / 2 - 90, "water"),
+    ],
     chests: [
       {
         id: 1,
@@ -460,7 +506,9 @@
     let loadedCount = 0;
     const waterSlimeFrameTotal = Object.values(waterSlimeAnimations)
       .reduce((total, animation) => total + animation.frames, 0);
-    const totalSprites = 26 + waterSlimeFrameTotal;
+    const bossFrameTotal = Object.values(bossAnimations)
+      .reduce((total, animation) => total + animation.frames, 0);
+    const totalSprites = 26 + waterSlimeFrameTotal + bossFrameTotal;
     const registerLoaded = () => {
       loadedCount += 1;
       loadingProgress.style.width = `${(loadedCount / totalSprites) * 100}%`;
@@ -548,6 +596,20 @@
         jobs.push(
           loadImage(src).then((image) => {
             sprites.waterSlime[action][frame] = image;
+            registerLoaded();
+          }),
+        );
+      }
+    }
+
+    sprites.boss = {};
+    for (const [action, animation] of Object.entries(bossAnimations)) {
+      sprites.boss[action] = [];
+      for (let frame = 1; frame <= animation.frames; frame += 1) {
+        const src = `${animation.folder}/${animation.prefix}_${frame}.png`;
+        jobs.push(
+          loadImage(src).then((image) => {
+            sprites.boss[action][frame - 1] = image;
             registerLoaded();
           }),
         );
@@ -795,6 +857,7 @@
     state.placementPreview.valid = false;
     state.particles = [];
     state.projectiles = [];
+    state.bossFireWaves = [];
     state.woodDrops = [];
     state.placedCampfires = [];
     state.powerCooldowns.fire = 0;
@@ -837,26 +900,13 @@
       waterDepth: 0,
     });
 
-    Object.assign(state.enemy, {
-      x: WORLD.width / 2 + 310,
-      y: WORLD.height / 2 - 90,
-      type: "water",
-      health: slimeTypes.water.maxHealth,
-      maxHealth: slimeTypes.water.maxHealth,
-      alive: true,
-      dying: false,
-      deathTime: 0,
-      animationTime: 0,
-      hurtTime: 0,
-      moving: false,
-      facing: "left",
-      attacking: false,
-      attackTime: 0,
-      attackHitApplied: false,
-      attackCooldown: 0.7,
-      respawnTime: 0,
-      spawnCount: 0,
-    });
+    state.enemySpawnCount = 0;
+    state.currentWaveSize = 1;
+    state.waveRespawnTime = 0;
+    state.enemies = [
+      createEnemy(WORLD.width / 2 + 310, WORLD.height / 2 - 90, "water"),
+    ];
+    state.boss = createBossState();
 
     for (const chest of state.chests) {
       chest.active = false;
@@ -1084,11 +1134,11 @@
     }
   }
 
-  function hitEnemy(damage, direction, knockback, color, accent = null) {
-    const enemy = state.enemy;
+  function hitEnemy(enemy, damage, direction, knockback, color, accent = null) {
     if (!enemy.alive || enemy.dying) return false;
 
-    enemy.health = Math.max(0, enemy.health - damage);
+    const waterResistance = enemy.type === "water" && enemy.inWater ? 0.65 : 1;
+    enemy.health = Math.max(0, enemy.health - damage * waterResistance);
     enemy.hurtTime = SLIME_HURT_DURATION;
     enemy.attacking = false;
     enemy.attackTime = 0;
@@ -1106,9 +1156,9 @@
         enemy.deathTime = 0;
       } else {
         enemy.alive = false;
-        enemy.respawnTime = 2.8;
       }
       state.kills += 1;
+      if (state.kills >= 20 && !state.boss.spawned) spawnBoss();
       unlockChests();
       updateInventoryUI();
       spawnHitParticles(enemy.x, enemy.y, slimeTypes[enemy.type].hitColor, 18);
@@ -1116,8 +1166,36 @@
     return true;
   }
 
+  function hitBoss(damage, direction, knockback, color, accent = null) {
+    const boss = state.boss;
+    if (!boss.alive || boss.dying) return false;
+
+    boss.health = Math.max(0, boss.health - damage * 0.82);
+    boss.hurtTime = 0.38;
+    boss.x += direction.x * knockback * 0.2;
+    boss.y += direction.y * knockback * 0.2;
+    spawnHitParticles(boss.x, boss.y - 38, color, 14);
+    if (accent) spawnHitParticles(boss.x, boss.y - 42, accent, 8);
+
+    if (boss.health <= 0) {
+      boss.health = 0;
+      boss.dying = true;
+      boss.action = "death";
+      boss.actionTime = 0;
+      boss.attackKind = null;
+      boss.moving = false;
+      state.bossFireWaves = [];
+      spawnHitParticles(boss.x, boss.y - 35, "#ff7138", 34);
+      playSound("fireSpell", 0.72);
+    } else if (boss.action !== "cleave") {
+      boss.action = "hurt";
+      boss.actionTime = 0;
+      boss.moving = false;
+    }
+    return true;
+  }
+
   function damageEnemy(action) {
-    const enemy = state.enemy;
     const player = state.player;
     if (player.attackHitApplied) return;
 
@@ -1127,8 +1205,13 @@
       : { range: 132, width: 74, damage: 45, knockback: 42 };
     const candidates = [];
 
-    if (enemy.alive && !enemy.dying) {
-      candidates.push({ kind: "enemy", target: enemy });
+    for (const enemy of state.enemies) {
+      if (enemy.alive && !enemy.dying) {
+        candidates.push({ kind: "enemy", target: enemy });
+      }
+    }
+    if (state.boss.alive && !state.boss.dying) {
+      candidates.push({ kind: "boss", target: state.boss });
     }
     for (const tree of state.trees) {
       if (tree.alive && tree.growth >= 0.8) {
@@ -1143,11 +1226,13 @@
         const forwardDistance = relativeX * forward.x + relativeY * forward.y;
         const lateralDistance = Math.abs(relativeX * -forward.y + relativeY * forward.x);
         const distance = Math.hypot(relativeX, relativeY);
-        const closeHit = distance <= (candidate.kind === "tree" ? 65 : 52);
+        const closeHit = distance <= (
+          candidate.kind === "tree" ? 65 : (candidate.kind === "boss" ? 82 : 52)
+        );
         const directionalHit = (
           forwardDistance >= -10
           && forwardDistance <= attack.range
-          && lateralDistance <= attack.width
+          && lateralDistance <= attack.width + (candidate.kind === "boss" ? 24 : 0)
         );
         return { ...candidate, distance, hittable: closeHit || directionalHit };
       })
@@ -1162,12 +1247,25 @@
       return;
     }
 
+    if (hit.kind === "boss") {
+      const hitApplied = hitBoss(
+        attack.damage,
+        forward,
+        attack.knockback,
+        action === "attack1" ? "#f3a13b" : "#c4433f",
+        "#ffb347",
+      );
+      if (hitApplied) playSound("slimeHurt", 0.86);
+      return;
+    }
+
     const hitApplied = hitEnemy(
+      hit.target,
       attack.damage,
       forward,
       attack.knockback,
       action === "attack1" ? "#f3a13b" : "#c4433f",
-      enemy.type === "water" ? "#62cef1" : null,
+      hit.target.type === "water" ? "#62cef1" : null,
     );
     if (hitApplied) playSound("slimeHurt", 0.94 + Math.random() * 0.12);
   }
@@ -1219,14 +1317,14 @@
     playerHealth.style.setProperty("--health-loss", `${Math.round(healthLoss)}px`);
   }
 
-  function damagePlayer(amount, attacker = state.enemy) {
+  function damagePlayer(amount, attacker = null) {
     const player = state.player;
     if (player.invulnerable > 0) return false;
 
     player.health = Math.max(0, player.health - amount);
     player.invulnerable = 0.75;
-    const dx = player.x - attacker.x;
-    const dy = player.y - attacker.y;
+    const dx = attacker ? player.x - attacker.x : 0;
+    const dy = attacker ? player.y - attacker.y : 1;
     const distance = Math.hypot(dx, dy) || 1;
     player.x += (dx / distance) * 34;
     player.y += (dy / distance) * 34;
@@ -1239,37 +1337,65 @@
     return true;
   }
 
-  function respawnEnemy() {
-    const enemy = state.enemy;
-    const angle = Math.random() * Math.PI * 2;
-    enemy.spawnCount += 1;
-    enemy.type = enemy.spawnCount % 2 === 0 ? "water" : "classic";
-    const typeConfig = slimeTypes[enemy.type];
-    enemy.x = Math.max(
-      WORLD.margin,
-      Math.min(WORLD.width - WORLD.margin, state.player.x + Math.cos(angle) * 340),
-    );
-    enemy.y = Math.max(
-      WORLD.margin,
-      Math.min(WORLD.height - WORLD.margin, state.player.y + Math.sin(angle) * 260),
-    );
-    enemy.maxHealth = typeConfig.maxHealth;
-    enemy.health = typeConfig.maxHealth;
-    enemy.alive = true;
-    enemy.dying = false;
-    enemy.deathTime = 0;
-    enemy.hurtTime = 0;
-    enemy.animationTime = 0;
-    enemy.moving = false;
-    enemy.facing = state.player.x < enemy.x ? "left" : "right";
-    enemy.attacking = false;
-    enemy.attackTime = 0;
-    enemy.attackHitApplied = false;
-    enemy.attackCooldown = 0.8;
+  function enemyWaveSize(kills = state.kills) {
+    if (kills < 10) return 1;
+    return 2 + Math.floor((kills - 10) / 10);
+  }
+
+  function enemySpawnPosition(type, angle, distance = 360) {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const candidateAngle = angle + attempt * 0.58;
+      const x = Math.max(
+        WORLD.margin,
+        Math.min(WORLD.width - WORLD.margin, state.player.x + Math.cos(candidateAngle) * distance),
+      );
+      const y = Math.max(
+        WORLD.margin,
+        Math.min(WORLD.height - WORLD.margin, state.player.y + Math.sin(candidateAngle) * 280),
+      );
+      if (type === "water" || !isPointInLake(x, y, 55)) return { x, y };
+    }
+    return { x: WORLD.margin + 40, y: WORLD.margin + 40 };
+  }
+
+  function spawnEnemyWave() {
+    const amount = enemyWaveSize();
+    const angleOffset = Math.random() * Math.PI * 2;
+    state.enemies = Array.from({ length: amount }, (_, index) => {
+      state.enemySpawnCount += 1;
+      const type = state.enemySpawnCount % 2 === 0 ? "water" : "classic";
+      const angle = angleOffset + (index / amount) * Math.PI * 2;
+      const position = enemySpawnPosition(type, angle, 350 + (index % 2) * 35);
+      const enemy = createEnemy(position.x, position.y, type);
+      enemy.facing = state.player.x < enemy.x ? "left" : "right";
+      return enemy;
+    });
+    state.currentWaveSize = amount;
+    state.waveRespawnTime = 0;
     playSound("slimeJump", 0.92 + Math.random() * 0.12);
   }
 
-  function slimeTouchesPlayer(enemy = state.enemy) {
+  function spawnBoss() {
+    const angle = Math.atan2(
+      state.player.y - LAKE.y,
+      state.player.x - LAKE.x,
+    ) + Math.PI;
+    const position = enemySpawnPosition("classic", angle, 410);
+    state.boss = {
+      ...createBossState(),
+      spawned: true,
+      alive: true,
+      x: position.x,
+      y: position.y,
+      facing: state.player.x < position.x ? "left" : "right",
+    };
+    state.waveRespawnTime = 0;
+    spawnHitParticles(position.x, position.y - 38, "#ff6b2f", 28);
+    spawnHitParticles(position.x, position.y - 54, "#ffd06b", 16);
+    playSound("fireSpell", 0.78);
+  }
+
+  function slimeTouchesPlayer(enemy) {
     const player = state.player;
     const dx = player.x - enemy.x;
     const dy = (player.y - 38) - (enemy.y - 26);
@@ -1539,14 +1665,59 @@
     state.woodDrops = state.woodDrops.filter((wood) => wood.active);
   }
 
-  function updateEnemy(dt) {
-    const enemy = state.enemy;
+  function fireSlimeMoveDirection(enemy, dx, dy, distance) {
+    const direct = { x: dx / distance, y: dy / distance };
+    const insideLake = isPointInLake(enemy.x, enemy.y, 8);
+    const pathEntersLake = isPointInLake(
+      enemy.x + direct.x * 82,
+      enemy.y + direct.y * 82,
+      42,
+    );
+    if (!insideLake && !pathEntersLake) return direct;
+
+    const radialX = (enemy.x - LAKE.x) / LAKE.radiusX;
+    const radialY = (enemy.y - LAKE.y) / LAKE.radiusY;
+    const radialLength = Math.hypot(radialX, radialY) || 1;
+    const outward = {
+      x: radialX / radialLength,
+      y: radialY / radialLength,
+    };
+    const clockwise = { x: -outward.y, y: outward.x };
+    const counterClockwise = { x: outward.y, y: -outward.x };
+    const tangent = (
+      clockwise.x * direct.x + clockwise.y * direct.y
+      > counterClockwise.x * direct.x + counterClockwise.y * direct.y
+    ) ? clockwise : counterClockwise;
+    const outwardWeight = insideLake ? 1.65 : 0.42;
+    const moveX = tangent.x + outward.x * outwardWeight + direct.x * 0.18;
+    const moveY = tangent.y + outward.y * outwardWeight + direct.y * 0.18;
+    const moveLength = Math.hypot(moveX, moveY) || 1;
+    return { x: moveX / moveLength, y: moveY / moveLength };
+  }
+
+  function updateEnemyLakeState(enemy, dt) {
+    enemy.inWater = isPointInLake(enemy.x, enemy.y, -8);
+    enemy.lakeDamageTimer = Math.max(0, enemy.lakeDamageTimer - dt);
+    if (enemy.type !== "classic" || !enemy.inWater || enemy.lakeDamageTimer > 0) return;
+
+    enemy.lakeDamageTimer = 0.42;
+    const dx = enemy.x - LAKE.x;
+    const dy = enemy.y - LAKE.y;
+    const distance = Math.hypot(dx, dy) || 1;
+    hitEnemy(
+      enemy,
+      12,
+      { x: dx / distance, y: dy / distance },
+      13,
+      "#54b8d2",
+      "#d5f8f2",
+    );
+    playSound("waterSplash", 0.88 + Math.random() * 0.08);
+  }
+
+  function updateEnemy(enemy, dt) {
     const player = state.player;
-    if (!enemy.alive) {
-      enemy.respawnTime -= dt;
-      if (enemy.respawnTime <= 0) respawnEnemy();
-      return;
-    }
+    if (!enemy.alive) return;
 
     if (enemy.dying) {
       enemy.deathTime += dt;
@@ -1555,12 +1726,13 @@
       if (enemy.deathTime >= deathDuration) {
         enemy.alive = false;
         enemy.dying = false;
-        enemy.respawnTime = 2.35;
       }
       return;
     }
 
     const typeConfig = slimeTypes[enemy.type];
+    updateEnemyLakeState(enemy, dt);
+    if (!enemy.alive || enemy.dying) return;
     enemy.animationTime += dt;
     enemy.hurtTime = Math.max(0, enemy.hurtTime - dt);
     enemy.attackCooldown = Math.max(0, enemy.attackCooldown - dt);
@@ -1581,7 +1753,11 @@
       if (attackFrame >= 2 && !enemy.attackHitApplied) {
         enemy.attackHitApplied = true;
         if (slimeTouchesPlayer(enemy)) {
-          const dealtDamage = damagePlayer(typeConfig.damage, enemy);
+          const waterDamageBoost = enemy.inWater ? 1.45 : 1;
+          const dealtDamage = damagePlayer(
+            Math.round(typeConfig.damage * waterDamageBoost),
+            enemy,
+          );
           if (dealtDamage) {
             spawnHitParticles(player.x, player.y, "#4eb5dc", 5);
             playSound("waterSplash", 0.94 + Math.random() * 0.1);
@@ -1595,8 +1771,12 @@
         enemy.attackHitApplied = false;
       }
     } else if (!slimeTouchesPlayer(enemy) && enemy.hurtTime <= 0) {
-      enemy.x += (dx / distance) * typeConfig.speed * dt;
-      enemy.y += (dy / distance) * typeConfig.speed * dt;
+      const moveDirection = enemy.type === "classic"
+        ? fireSlimeMoveDirection(enemy, dx, dy, distance)
+        : { x: dx / distance, y: dy / distance };
+      const waterSpeedBoost = enemy.type === "water" && enemy.inWater ? 1.34 : 1;
+      enemy.x += moveDirection.x * typeConfig.speed * waterSpeedBoost * dt;
+      enemy.y += moveDirection.y * typeConfig.speed * waterSpeedBoost * dt;
       enemy.moving = true;
     }
 
@@ -1625,6 +1805,225 @@
 
     enemy.x = Math.max(WORLD.margin, Math.min(WORLD.width - WORLD.margin, enemy.x));
     enemy.y = Math.max(WORLD.margin, Math.min(WORLD.height - WORLD.margin, enemy.y));
+  }
+
+  function resolveEnemySeparation() {
+    const livingEnemies = state.enemies.filter((enemy) => enemy.alive && !enemy.dying);
+    for (let firstIndex = 0; firstIndex < livingEnemies.length; firstIndex += 1) {
+      for (let secondIndex = firstIndex + 1; secondIndex < livingEnemies.length; secondIndex += 1) {
+        const first = livingEnemies[firstIndex];
+        const second = livingEnemies[secondIndex];
+        let dx = second.x - first.x;
+        let dy = second.y - first.y;
+        let distance = Math.hypot(dx, dy);
+        if (distance >= 62) continue;
+        if (distance < 0.001) {
+          dx = 1;
+          dy = 0;
+          distance = 1;
+        }
+        const push = (62 - distance) * 0.5;
+        const normalX = dx / distance;
+        const normalY = dy / distance;
+        first.x -= normalX * push;
+        first.y -= normalY * push;
+        second.x += normalX * push;
+        second.y += normalY * push;
+      }
+    }
+  }
+
+  function setBossAction(action, attackKind = null) {
+    const boss = state.boss;
+    if (boss.action === action && boss.attackKind === attackKind) return;
+    boss.action = action;
+    boss.actionTime = 0;
+    boss.attackKind = attackKind;
+    boss.attackApplied = false;
+  }
+
+  function summonBossFireSlime() {
+    const boss = state.boss;
+    const angle = Math.random() * Math.PI * 2;
+    let x = boss.x + Math.cos(angle) * 92;
+    let y = boss.y + Math.sin(angle) * 68;
+    if (isPointInLake(x, y, 35)) {
+      const dx = boss.x - LAKE.x;
+      const dy = boss.y - LAKE.y;
+      const distance = Math.hypot(dx, dy) || 1;
+      x = boss.x + (dx / distance) * 105;
+      y = boss.y + (dy / distance) * 78;
+    }
+    x = Math.max(WORLD.margin, Math.min(WORLD.width - WORLD.margin, x));
+    y = Math.max(WORLD.margin, Math.min(WORLD.height - WORLD.margin, y));
+    const slime = createEnemy(x, y, "classic");
+    slime.attackCooldown = 1;
+    slime.facing = state.player.x < x ? "left" : "right";
+    state.enemies.push(slime);
+    spawnHitParticles(x, y - 18, "#ff7c32", 16);
+    spawnHitParticles(x, y - 22, "#ffd36b", 8);
+    playSound("slimeJump", 0.82 + Math.random() * 0.08);
+  }
+
+  function launchBossFireWave() {
+    const boss = state.boss;
+    const dx = state.player.x - boss.x;
+    const dy = state.player.y - boss.y;
+    const distance = Math.hypot(dx, dy) || 1;
+    const direction = { x: dx / distance, y: dy / distance };
+    state.bossFireWaves.push({
+      x: boss.x + direction.x * 72,
+      y: boss.y - 30 + direction.y * 35,
+      vx: direction.x * 285,
+      vy: direction.y * 285,
+      direction,
+      angle: Math.atan2(direction.y, direction.x),
+      age: 0,
+      maxAge: 2.25,
+      active: true,
+    });
+    spawnHitParticles(boss.x + direction.x * 58, boss.y - 34, "#ff8f2d", 18);
+    playSound("fireSpell", 0.78 + Math.random() * 0.06);
+  }
+
+  function updateBossFireWaves(dt) {
+    for (const wave of state.bossFireWaves) {
+      if (!wave.active) continue;
+      wave.age += dt;
+      wave.x += wave.vx * dt;
+      wave.y += wave.vy * dt;
+      if (
+        wave.age >= wave.maxAge
+        || wave.x < WORLD.margin
+        || wave.x > WORLD.width - WORLD.margin
+        || wave.y < WORLD.margin
+        || wave.y > WORLD.height - WORLD.margin
+      ) {
+        wave.active = false;
+        continue;
+      }
+
+      const dx = state.player.x - wave.x;
+      const dy = (state.player.y - 22) - wave.y;
+      if ((dx * dx) / (48 * 48) + (dy * dy) / (36 * 36) > 1) continue;
+      wave.active = false;
+      const dealtDamage = damagePlayer(18, {
+        x: wave.x - wave.direction.x * 20,
+        y: wave.y - wave.direction.y * 20,
+      });
+      if (dealtDamage) {
+        spawnHitParticles(wave.x, wave.y, "#ff7138", 15);
+        playSound("fireSpell", 0.7);
+      }
+    }
+    state.bossFireWaves = state.bossFireWaves.filter((wave) => wave.active);
+  }
+
+  function updateBoss(dt) {
+    const boss = state.boss;
+    if (!boss.alive) return;
+
+    const animation = bossAnimations[boss.action];
+    if (boss.dying) {
+      boss.actionTime += dt;
+      if (boss.actionTime >= animation.frames / animation.fps) {
+        boss.alive = false;
+        boss.dying = false;
+        boss.defeated = true;
+      }
+      return;
+    }
+
+    boss.hurtTime = Math.max(0, boss.hurtTime - dt);
+    boss.swordCooldown = Math.max(0, boss.swordCooldown - dt);
+    boss.fireWaveCooldown = Math.max(0, boss.fireWaveCooldown - dt);
+    boss.summonCooldown -= dt;
+    if (boss.summonCooldown <= 0) {
+      boss.summonCooldown += BOSS_SUMMON_INTERVAL;
+      summonBossFireSlime();
+    }
+
+    if (boss.action === "hurt") {
+      boss.actionTime += dt;
+      if (boss.actionTime >= animation.frames / animation.fps) setBossAction("idle");
+      return;
+    }
+
+    if (boss.action === "cleave") {
+      boss.actionTime += dt;
+      const frame = Math.floor(boss.actionTime * animation.fps);
+      const impactFrame = boss.attackKind === "fire" ? 6 : 8;
+      if (frame >= impactFrame && !boss.attackApplied) {
+        boss.attackApplied = true;
+        if (boss.attackKind === "fire") {
+          launchBossFireWave();
+        } else {
+          const distance = Math.hypot(
+            state.player.x - boss.x,
+            state.player.y - boss.y,
+          );
+          if (distance <= 142) {
+            damagePlayer(24, boss);
+            spawnHitParticles(state.player.x, state.player.y - 8, "#ff8a37", 12);
+            playSound("swordStrong", 0.76);
+          }
+        }
+      }
+      if (boss.actionTime >= animation.frames / animation.fps) setBossAction("idle");
+      return;
+    }
+
+    const dx = state.player.x - boss.x;
+    const dy = state.player.y - boss.y;
+    const distance = Math.hypot(dx, dy) || 1;
+    if (Math.abs(dx) > 4) boss.facing = dx < 0 ? "left" : "right";
+    boss.moving = false;
+
+    if (distance <= 138 && boss.swordCooldown <= 0) {
+      boss.swordCooldown = 2.15;
+      setBossAction("cleave", "sword");
+      return;
+    }
+    if (boss.fireWaveCooldown <= 0) {
+      boss.fireWaveCooldown = 4.1;
+      setBossAction("cleave", "fire");
+      return;
+    }
+
+    if (distance > 112) {
+      const moveDirection = fireSlimeMoveDirection(boss, dx, dy, distance);
+      boss.x += moveDirection.x * BOSS_SPEED * dt;
+      boss.y += moveDirection.y * BOSS_SPEED * dt;
+      boss.moving = true;
+      setBossAction("walk");
+    } else {
+      setBossAction("idle");
+    }
+    boss.actionTime += dt;
+
+    resolveChestCollision(boss, 82, 54, 26);
+    resolveTreeCollisions(boss, 62, 40, 26);
+    resolveRuinCollisions(boss, 26);
+    resolveCampfireCollision(boss);
+    boss.x = Math.max(WORLD.margin, Math.min(WORLD.width - WORLD.margin, boss.x));
+    boss.y = Math.max(WORLD.margin, Math.min(WORLD.height - WORLD.margin, boss.y));
+  }
+
+  function updateEnemies(dt) {
+    for (const enemy of state.enemies) updateEnemy(enemy, dt);
+    resolveEnemySeparation();
+
+    if (state.boss.alive) {
+      state.waveRespawnTime = 0;
+      return;
+    }
+    if (state.enemies.some((enemy) => enemy.alive)) {
+      state.waveRespawnTime = 0;
+      return;
+    }
+    if (state.waveRespawnTime <= 0) state.waveRespawnTime = 2.35;
+    state.waveRespawnTime -= dt;
+    if (state.waveRespawnTime <= 0) spawnEnemyWave();
   }
 
   function updateParticles(dt) {
@@ -1698,16 +2097,46 @@
         }
       }
 
-      const enemy = state.enemy;
-      if (!enemy.alive || enemy.dying) continue;
-      const dx = enemy.x - projectile.x;
-      const dy = (enemy.y - 22) - projectile.y;
-      const hit = (dx * dx) / (46 * 46) + (dy * dy) / (38 * 38) <= 1;
-      if (!hit) continue;
+      const boss = state.boss;
+      if (boss.alive && !boss.dying) {
+        const bossDx = boss.x - projectile.x;
+        const bossDy = (boss.y - 40) - projectile.y;
+        const bossHit = (
+          (bossDx * bossDx) / (82 * 82)
+          + (bossDy * bossDy) / (72 * 72)
+          <= 1
+        );
+        if (bossHit) {
+          projectile.active = false;
+          const config = powerConfig[projectile.type];
+          hitBoss(
+            config.damage * (projectile.damageMultiplier || 1),
+            projectile.direction,
+            config.knockback * (projectile.knockbackMultiplier || 1),
+            config.color,
+            config.accent,
+          );
+          playSound(
+            projectile.type === "water" ? "waterSplash" : "slimeHurt",
+            0.82,
+          );
+          spawnHitParticles(projectile.x, projectile.y, config.accent, 12);
+          continue;
+        }
+      }
+
+      const enemy = state.enemies.find((candidate) => {
+        if (!candidate.alive || candidate.dying) return false;
+        const dx = candidate.x - projectile.x;
+        const dy = (candidate.y - 22) - projectile.y;
+        return (dx * dx) / (46 * 46) + (dy * dy) / (38 * 38) <= 1;
+      });
+      if (!enemy) continue;
 
       projectile.active = false;
       const config = powerConfig[projectile.type];
       hitEnemy(
+        enemy,
         config.damage * (projectile.damageMultiplier || 1),
         projectile.direction,
         config.knockback * (projectile.knockbackMultiplier || 1),
@@ -1821,10 +2250,20 @@
     const fox = state.fox;
     if (!fox.active) return;
 
-    const enemy = state.enemy;
+    let enemy = null;
+    let nearestEnemyDistanceSquared = Infinity;
+    for (const candidate of state.enemies) {
+      if (!candidate.alive || candidate.dying) continue;
+      const enemyDx = state.player.x - candidate.x;
+      const enemyDy = state.player.y - candidate.y;
+      const distanceSquared = enemyDx * enemyDx + enemyDy * enemyDy;
+      if (distanceSquared >= nearestEnemyDistanceSquared) continue;
+      nearestEnemyDistanceSquared = distanceSquared;
+      enemy = candidate;
+    }
     const previousAnimation = fox.alert ? "alert" : (fox.moving ? "move" : "idle");
-    const enemyDistance = enemy.alive && !enemy.dying
-      ? Math.hypot(state.player.x - enemy.x, state.player.y - enemy.y)
+    const enemyDistance = enemy
+      ? Math.sqrt(nearestEnemyDistanceSquared)
       : Infinity;
     fox.alert = fox.alert
       ? enemyDistance <= FOX_ALERT_EXIT_DISTANCE
@@ -1848,7 +2287,7 @@
     }
 
     fox.moving = distance > 14;
-    if (fox.alert) {
+    if (fox.alert && enemy) {
       const dangerDx = enemy.x - fox.x;
       if (Math.abs(dangerDx) > 1) fox.facing = dangerDx < 0 ? "left" : "right";
     } else if (Math.abs(dx) > 1) {
@@ -1972,7 +2411,9 @@
     }
 
     updateProjectiles(dt);
-    updateEnemy(dt);
+    updateEnemies(dt);
+    updateBoss(dt);
+    updateBossFireWaves(dt);
     updateTrees(dt);
     updateWoodDrops(dt);
     updateParticles(dt);
@@ -2646,13 +3087,28 @@
     }
   }
 
-  function drawSlime() {
-    const enemy = state.enemy;
+  function drawSlime(enemy) {
     if (!enemy.alive) return;
 
     const point = worldToScreen(enemy.x, enemy.y);
     const isWater = enemy.type === "water";
     const typeConfig = slimeTypes[enemy.type];
+
+    if (isWater && enemy.inWater && !enemy.dying) {
+      const pulse = 0.5 + Math.sin(enemy.animationTime * 6) * 0.5;
+      const aura = ctx.createRadialGradient(
+        point.x,
+        point.y - 20,
+        8,
+        point.x,
+        point.y - 10,
+        62 + pulse * 7,
+      );
+      aura.addColorStop(0, `rgba(113, 231, 255, ${0.22 + pulse * 0.09})`);
+      aura.addColorStop(1, "rgba(67, 193, 230, 0)");
+      ctx.fillStyle = aura;
+      ctx.fillRect(point.x - 74, point.y - 90, 148, 112);
+    }
 
     ctx.save();
     ctx.translate(point.x, point.y);
@@ -2732,9 +3188,23 @@
       ctx.restore();
     }
 
+    if (enemy.inWater) {
+      ctx.save();
+      traceLakeShape();
+      ctx.clip();
+      ctx.fillStyle = isWater ? "rgba(66, 168, 194, .72)" : "rgba(69, 151, 171, .8)";
+      ctx.fillRect(point.x - 48, point.y - 13, 96, 34);
+      ctx.strokeStyle = isWater ? "rgba(206, 255, 248, .9)" : "rgba(224, 250, 239, .78)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(point.x, point.y - 11, isWater ? 37 : 31, 9, 0, 0, Math.PI);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     if (enemy.dying) return;
 
-    const barWidth = isWater ? 68 : 58;
+    const barWidth = isWater ? 68 : 70;
     const barY = point.y - (isWater ? 78 : 70);
     ctx.fillStyle = "rgba(54, 24, 11, .88)";
     ctx.fillRect(Math.round(point.x - barWidth / 2 - 2), Math.round(barY - 2), barWidth + 4, 8);
@@ -2750,7 +3220,100 @@
     ctx.fillStyle = "rgba(63, 31, 12, .72)";
     ctx.font = "900 8px Courier New";
     ctx.textAlign = "center";
-    ctx.fillText(typeConfig.label, Math.round(point.x), Math.round(barY - 6));
+    const label = isWater && enemy.inWater
+      ? `${typeConfig.label} +`
+      : typeConfig.label;
+    ctx.fillText(label, Math.round(point.x), Math.round(barY - 6));
+  }
+
+  function drawBossFireWave(wave) {
+    const point = worldToScreen(wave.x, wave.y);
+    const variant = projectileVariants[3];
+    const frame = Math.floor(wave.age * variant.fps) % variant.frames;
+    const sourceX = (variant.startColumn + frame) * EFFECT_FRAME_SIZE;
+    const sourceY = variant.row * EFFECT_FRAME_SIZE;
+    const pulse = 0.5 + Math.sin(wave.age * 18) * 0.5;
+
+    ctx.save();
+    ctx.translate(Math.round(point.x), Math.round(point.y));
+    ctx.rotate(wave.angle);
+    const glow = ctx.createRadialGradient(0, 0, 3, 0, 0, 48 + pulse * 8);
+    glow.addColorStop(0, "rgba(255, 185, 61, .48)");
+    glow.addColorStop(0.45, "rgba(255, 91, 35, .24)");
+    glow.addColorStop(1, "rgba(255, 72, 24, 0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(-66, -54, 132, 108);
+    ctx.drawImage(
+      sprites.fireEffects,
+      sourceX,
+      sourceY,
+      EFFECT_FRAME_SIZE,
+      EFFECT_FRAME_SIZE,
+      -38,
+      -27,
+      76,
+      54,
+    );
+    ctx.fillStyle = `rgba(255, 205, 93, ${0.6 + pulse * 0.28})`;
+    ctx.fillRect(-58, -3, 27, 5);
+    ctx.restore();
+  }
+
+  function drawBoss() {
+    const boss = state.boss;
+    if (!boss.alive) return;
+    const point = worldToScreen(boss.x, boss.y);
+    const animation = bossAnimations[boss.action];
+    const rawFrame = Math.floor(boss.actionTime * animation.fps);
+    const frame = animation.loop
+      ? rawFrame % animation.frames
+      : Math.min(animation.frames - 1, rawFrame);
+    const sprite = sprites.boss[boss.action][frame];
+    const drawWidth = 288 * BOSS_SCALE;
+    const drawHeight = 160 * BOSS_SCALE;
+    const pulse = 0.5 + Math.sin(boss.actionTime * 5) * 0.5;
+
+    ctx.save();
+    ctx.fillStyle = "rgba(73, 25, 13, .3)";
+    ctx.beginPath();
+    ctx.ellipse(point.x, point.y + 2, 55 + pulse * 3, 17, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(Math.round(point.x), Math.round(point.y));
+    // The source frames face left, so only mirror them when the boss faces right.
+    if (boss.facing === "right") ctx.scale(-1, 1);
+    if (boss.hurtTime > 0 && Math.floor(boss.hurtTime * 28) % 2 === 0) {
+      ctx.globalAlpha = 0.56;
+    }
+    ctx.drawImage(
+      sprite,
+      Math.round(-drawWidth / 2),
+      Math.round(-drawHeight + 10),
+      drawWidth,
+      drawHeight,
+    );
+    ctx.restore();
+
+    if (boss.dying) return;
+    const barWidth = 190;
+    const barY = point.y - 145;
+    ctx.fillStyle = "rgba(47, 14, 10, .94)";
+    ctx.fillRect(point.x - barWidth / 2 - 3, barY - 3, barWidth + 6, 13);
+    ctx.fillStyle = "#43140f";
+    ctx.fillRect(point.x - barWidth / 2, barY, barWidth, 7);
+    ctx.fillStyle = "#e34d26";
+    ctx.fillRect(
+      point.x - barWidth / 2,
+      barY,
+      barWidth * (boss.health / boss.maxHealth),
+      7,
+    );
+    ctx.fillStyle = "#fff0bc";
+    ctx.font = "900 10px Courier New";
+    ctx.textAlign = "center";
+    ctx.fillText("DEMON SLIME • BOSS", point.x, barY - 8);
   }
 
   function drawChest(chest) {
@@ -2989,45 +3552,94 @@
     ctx.globalAlpha = 1;
   }
 
+  const visibleEntities = [];
+  let visibleEntityCount = 0;
+
+  function isEntityVisible(x, y, padding = 220) {
+    const halfWidth = state.width / 2 + padding;
+    const halfHeight = state.height / 2 + padding;
+    return (
+      Math.abs(x - state.camera.x) <= halfWidth
+      && Math.abs(y - state.camera.y) <= halfHeight
+    );
+  }
+
+  function queueEntity(type, entity, y = entity.y) {
+    if (!isEntityVisible(entity.x, entity.y)) return;
+    const entry = visibleEntities[visibleEntityCount] || {};
+    entry.type = type;
+    entry.entity = entity;
+    entry.y = y;
+    visibleEntities[visibleEntityCount] = entry;
+    visibleEntityCount += 1;
+  }
+
+  function drawQueuedEntity(entry) {
+    switch (entry.type) {
+      case "player": drawPlayer(); break;
+      case "campfire": drawCampfire(entry.entity); break;
+      case "tree": drawTree(entry.entity); break;
+      case "wood": drawWoodDrop(entry.entity); break;
+      case "ruin": drawRuin(entry.entity); break;
+      case "chest": drawChest(entry.entity); break;
+      case "gem": drawGem(entry.entity); break;
+      case "projectile": drawProjectile(entry.entity); break;
+      case "wave": drawBossFireWave(entry.entity); break;
+      case "fox": drawFox(); break;
+      case "enemy": drawSlime(entry.entity); break;
+      case "boss": drawBoss(); break;
+    }
+  }
+
   function drawEntities() {
-    const entities = [
-      { y: state.player.y, draw: drawPlayer },
-    ];
+    visibleEntityCount = 0;
+    queueEntity("player", state.player);
     for (const campfire of state.placedCampfires) {
-      entities.push({ y: campfire.y, draw: () => drawCampfire(campfire) });
+      queueEntity("campfire", campfire);
     }
     for (const tree of state.trees) {
-      entities.push({ y: tree.y, draw: () => drawTree(tree) });
+      queueEntity("tree", tree);
     }
     for (const wood of state.woodDrops) {
-      entities.push({ y: wood.y, draw: () => drawWoodDrop(wood) });
+      queueEntity("wood", wood);
     }
     for (const ruin of state.ruins) {
-      entities.push({ y: ruin.y, draw: () => drawRuin(ruin) });
+      queueEntity("ruin", ruin);
     }
     for (const chest of state.chests) {
       if (chest.active) {
-        entities.push({ y: chest.y, draw: () => drawChest(chest) });
+        queueEntity("chest", chest);
       }
     }
     for (const gem of state.gems) {
       if (gem.active && !gem.collected) {
-        entities.push({ y: gem.y, draw: () => drawGem(gem) });
+        queueEntity("gem", gem);
       }
     }
     for (const projectile of state.projectiles) {
       if (projectile.active) {
-        entities.push({ y: projectile.y, draw: () => drawProjectile(projectile) });
+        queueEntity("projectile", projectile);
+      }
+    }
+    for (const wave of state.bossFireWaves) {
+      if (wave.active) {
+        queueEntity("wave", wave);
       }
     }
     if (state.fox.active) {
-      entities.push({ y: state.fox.y, draw: drawFox });
+      queueEntity("fox", state.fox);
     }
-    if (state.enemy.alive) {
-      entities.push({ y: state.enemy.y, draw: drawSlime });
+    for (const enemy of state.enemies) {
+      if (enemy.alive) {
+        queueEntity("enemy", enemy);
+      }
     }
-    entities.sort((first, second) => first.y - second.y);
-    for (const entity of entities) entity.draw();
+    if (state.boss.alive) {
+      queueEntity("boss", state.boss);
+    }
+    visibleEntities.length = visibleEntityCount;
+    visibleEntities.sort((first, second) => first.y - second.y);
+    for (const entity of visibleEntities) drawQueuedEntity(entity);
     drawPetals();
     drawParticles();
   }
@@ -3047,7 +3659,17 @@
     const goal = state.kills < 5 ? 5 : 10;
     const count = Math.min(state.kills, 10);
     const y = state.width <= 740 ? 116 : 86;
-    const label = state.kills >= 10 ? "BAÚS LIBERADOS" : `SLIMES  ${count} / ${goal}`;
+    let bossMinions = 0;
+    for (const enemy of state.enemies) {
+      if (enemy.alive) bossMinions += 1;
+    }
+    const label = state.boss.alive && !state.boss.dying
+      ? `BOSS  ${Math.ceil(state.boss.health)} HP  •  ${bossMinions} SERVOS`
+      : (
+        state.kills >= 10
+          ? `ONDA  x${state.currentWaveSize}  •  ${state.kills} ABATES`
+          : `SLIMES  ${count} / ${goal}`
+      );
 
     ctx.save();
     ctx.font = "900 9px Courier New";
@@ -3056,7 +3678,9 @@
     ctx.fillRect(24, y - 14, width, 23);
     ctx.strokeStyle = "rgba(83,42,22,.22)";
     ctx.strokeRect(24.5, y - 13.5, width - 1, 22);
-    ctx.fillStyle = state.kills >= 10 ? "#a85427" : "rgba(67,43,30,.7)";
+    ctx.fillStyle = state.boss.alive
+      ? "#a93627"
+      : (state.kills >= 10 ? "#a85427" : "rgba(67,43,30,.7)");
     ctx.textAlign = "left";
     ctx.fillText(label, 33, y);
     ctx.restore();
