@@ -253,6 +253,33 @@
             >
               <span class="inventory-fox-sprite"></span>
             </button>
+            <button
+              id="inventory-wood-item"
+              class="inventory-item wood-item owned"
+              type="button"
+              aria-label="Madeira: 0"
+              data-detail="Madeira • obtida ao derrubar árvores"
+            >
+              <span class="inventory-wood-sprite"></span>
+              <b id="inventory-wood-count">0</b>
+            </button>
+            <button
+              id="inventory-campfire-item"
+              class="inventory-item campfire-item locked"
+              type="button"
+              aria-label="Fogueira apagada: nenhuma disponível"
+              data-detail="Fogueira apagada • selecione para posicionar"
+            >
+              <span class="inventory-campfire-sprite"></span>
+              <b id="inventory-campfire-count">0</b>
+            </button>
+            <div class="craft-recipe">
+              <span><b>3</b> madeiras</span>
+              <i aria-hidden="true">→</i>
+              <button id="craft-campfire-button" type="button">
+                Fabricar fogueira
+              </button>
+            </div>
           </div>
           <div class="inventory-legend">
             <span class="inventory-legend-title">Descrição</span>

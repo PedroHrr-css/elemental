@@ -30,6 +30,11 @@
   const inventoryFireItem = document.querySelector("#inventory-fire-item");
   const inventoryBlueItem = document.querySelector("#inventory-blue-item");
   const inventoryFoxItem = document.querySelector("#inventory-fox-item");
+  const inventoryWoodItem = document.querySelector("#inventory-wood-item");
+  const inventoryCampfireItem = document.querySelector("#inventory-campfire-item");
+  const inventoryWoodCount = document.querySelector("#inventory-wood-count");
+  const inventoryCampfireCount = document.querySelector("#inventory-campfire-count");
+  const craftCampfireButton = document.querySelector("#craft-campfire-button");
   const inventoryDetail = document.querySelector("#inventory-detail");
   const AUDIO_ROOT = "assets/audio";
   const chestSound = new Audio(`${AUDIO_ROOT}/treasure-open.wav`);
@@ -115,6 +120,25 @@
   const WATER_SLIME_FRAME_HEIGHT = 25;
   const WATER_SLIME_SCALE = 3.65;
   const WATER_SLIME_ROOT = "assets/sprites/enemies/water";
+  const CAMPFIRE_FRAME_WIDTH = 32;
+  const CAMPFIRE_FRAME_HEIGHT = 64;
+  const CAMPFIRE_FRAME_COUNT = 8;
+  const CAMPFIRE_FPS = 10;
+  const CAMPFIRE_SCALE = 2;
+  const CAMPFIRE_HEAL_RADIUS = 138;
+  const CAMPFIRE_HEAL_PER_SECOND = 8;
+  const TREE_REGROW_MIN = 24;
+  const TREE_REGROW_VARIANCE = 14;
+  const TREE_GROW_DURATION = 3.4;
+  const RUIN_VARIANTS = [
+    { sx: 353, sy: 269, sw: 94, sh: 72, scale: 1.35, radiusX: 54, radiusY: 28 },
+    { sx: 420, sy: 359, sw: 55, sh: 49, scale: 1.65, radiusX: 38, radiusY: 22 },
+    { sx: 3, sy: 430, sw: 57, sh: 44, scale: 1.7, radiusX: 42, radiusY: 19 },
+    { sx: 289, sy: 251, sw: 30, sh: 29, scale: 1.8, radiusX: 25, radiusY: 14 },
+    { sx: 416, sy: 194, sw: 32, sh: 57, scale: 1.75, radiusX: 25, radiusY: 17 },
+    { sx: 288, sy: 158, sw: 32, sh: 57, scale: 1.7, radiusX: 25, radiusY: 17 },
+    { sx: 227, sy: 303, sw: 26, sh: 40, scale: 1.85, radiusX: 24, radiusY: 15 },
+  ];
   const waterSlimeAnimations = {
     idle: { frames: 4, fps: 6, loop: true },
     move: { frames: 4, fps: 10, loop: true },
@@ -191,6 +215,57 @@
     attack2: "attack2",
   };
 
+  function generateRuins(trees = []) {
+    const ruins = [];
+    const protectedPoints = [
+      { x: WORLD.width / 2, y: WORLD.height / 2, radius: 205 },
+      { x: WORLD.width / 2 - 270, y: WORLD.height / 2 + 125, radius: 110 },
+      { x: WORLD.width / 2 + 285, y: WORLD.height / 2 + 145, radius: 110 },
+      ...trees.map((tree) => ({ x: tree.x, y: tree.y, radius: 112 })),
+    ];
+
+    const insetX = WORLD.margin + 72;
+    const insetY = WORLD.margin + 58;
+    const usableWidth = WORLD.width - insetX * 2;
+    const usableHeight = WORLD.height - insetY * 2;
+    const cells = [];
+    for (let row = 0; row < 2; row += 1) {
+      for (let column = 0; column < 4; column += 1) {
+        cells.push({ row, column, order: Math.random() });
+      }
+    }
+    cells.sort((first, second) => first.order - second.order);
+
+    for (const cell of cells) {
+      if (ruins.length >= 7) break;
+      for (let attempt = 0; attempt < 36; attempt += 1) {
+        const variant = Math.floor(Math.random() * RUIN_VARIANTS.length);
+        const config = RUIN_VARIANTS[variant];
+        const cellWidth = usableWidth / 4;
+        const cellHeight = usableHeight / 2;
+        const x = insetX + cell.column * cellWidth + cellWidth * (0.2 + Math.random() * 0.6);
+        const y = insetY + cell.row * cellHeight + cellHeight * (0.18 + Math.random() * 0.64);
+        const blocked = protectedPoints.some(
+          (point) => Math.hypot(x - point.x, y - point.y) < point.radius,
+        ) || ruins.some(
+          (ruin) => Math.hypot(x - ruin.x, y - ruin.y)
+            < Math.max(config.radiusX, RUIN_VARIANTS[ruin.variant].radiusX) + 175,
+        );
+
+        if (!blocked) {
+          ruins.push({
+            x: Math.round(x),
+            y: Math.round(y),
+            variant,
+            flip: Math.random() < 0.5 ? -1 : 1,
+          });
+          break;
+        }
+      }
+    }
+    return ruins;
+  }
+
   const state = {
     loaded: false,
     paused: true,
@@ -204,6 +279,8 @@
     camera: { x: WORLD.width / 2, y: WORLD.height / 2 },
     keys: new Set(),
     queuedAttack: null,
+    placementMode: false,
+    placementPreview: { x: 0, y: 0, valid: false },
     particles: [],
     projectiles: [],
     powerCooldowns: { fire: 0, water: 0 },
@@ -225,6 +302,9 @@
       { x: 1090 + Math.random() * 95, y: 125 + Math.random() * 70, animationTime: Math.random() * 3, fps: 4.3 + Math.random() * 1.4, petalTimer: 2 + Math.random() * 5 },
       { x: 1580 + Math.random() * 80, y: 520 + Math.random() * 90, animationTime: Math.random() * 3, fps: 4.3 + Math.random() * 1.4, petalTimer: 2 + Math.random() * 5 },
     ],
+    ruins: [],
+    woodDrops: [],
+    placedCampfires: [],
     petals: [],
     kills: 0,
     player: {
@@ -291,6 +371,8 @@
     inventory: {
       fire: false,
       blue: false,
+      wood: 0,
+      campfires: 0,
     },
     fox: {
       active: false,
@@ -302,6 +384,16 @@
       animationTime: 0,
     },
   };
+  state.trees.forEach((tree) => Object.assign(tree, {
+    alive: true,
+    health: 3,
+    maxHealth: 3,
+    fallTime: 0,
+    hurtTime: 0,
+    regrowTimer: 0,
+    growth: 1,
+  }));
+  state.ruins = generateRuins(state.trees);
 
   const sprites = {};
 
@@ -319,7 +411,7 @@
     let loadedCount = 0;
     const waterSlimeFrameTotal = Object.values(waterSlimeAnimations)
       .reduce((total, animation) => total + animation.frames, 0);
-    const totalSprites = 23 + waterSlimeFrameTotal;
+    const totalSprites = 25 + waterSlimeFrameTotal;
     const registerLoaded = () => {
       loadedCount += 1;
       loadingProgress.style.width = `${(loadedCount / totalSprites) * 100}%`;
@@ -365,6 +457,18 @@
     jobs.push(
       loadImage("assets/sprites/environment/autumn-tree.png").then((image) => {
         sprites.tree = image;
+        registerLoaded();
+      }),
+    );
+    jobs.push(
+      loadImage("assets/sprites/environment/campfire-sheet.png").then((image) => {
+        sprites.campfire = image;
+        registerLoaded();
+      }),
+    );
+    jobs.push(
+      loadImage("assets/sprites/environment/ruins-props.png").then((image) => {
+        sprites.ruins = image;
         registerLoaded();
       }),
     );
@@ -503,6 +607,22 @@
     inventoryDetail.textContent = obtained === 2
       ? "Poderes de fogo e água ativos • a raposa despertou"
       : `${obtained} de 2 gemas coletadas`;
+    inventoryWoodCount.textContent = String(state.inventory.wood);
+    inventoryCampfireCount.textContent = String(state.inventory.campfires);
+    inventoryWoodItem.setAttribute("aria-label", `Madeira: ${state.inventory.wood}`);
+    inventoryCampfireItem.classList.toggle("owned", state.inventory.campfires > 0);
+    inventoryCampfireItem.classList.toggle("locked", state.inventory.campfires === 0);
+    inventoryCampfireItem.setAttribute(
+      "aria-label",
+      state.inventory.campfires > 0
+        ? `Fogueiras apagadas: ${state.inventory.campfires}. Clique para posicionar`
+        : "Fogueira apagada: nenhuma disponível",
+    );
+    craftCampfireButton.disabled = state.inventory.wood < 3;
+    inventoryCapacity.textContent = `${state.inventory.wood} madeira`;
+    inventoryDetail.textContent = state.inventory.wood >= 3
+      ? "Receita disponível • 3 madeiras criam uma fogueira apagada"
+      : `Reúna madeira • faltam ${Math.max(0, 3 - state.inventory.wood)} para fabricar`;
   }
 
   function showInventoryItemDetail(element) {
@@ -535,6 +655,36 @@
     state.paused = false;
     inventoryScreen.classList.add("hidden");
     resumeAmbience();
+    canvas.focus();
+  }
+
+  function craftCampfire() {
+    if (state.inventory.wood < 3) {
+      inventoryDetail.textContent = "Você precisa de 3 madeiras";
+      return false;
+    }
+    state.inventory.wood -= 3;
+    state.inventory.campfires += 1;
+    updateInventoryUI();
+    inventoryDetail.textContent = "Fogueira fabricada • selecione o item para posicionar";
+    return true;
+  }
+
+  function beginCampfirePlacement() {
+    if (state.inventory.campfires <= 0 || !state.inventoryOpen) return false;
+    closeInventory();
+    state.placementMode = true;
+    const direction = directionVector(state.player.direction);
+    updatePlacementPreview(
+      state.player.x + direction.x * 110,
+      state.player.y + direction.y * 110,
+    );
+    return true;
+  }
+
+  function cancelCampfirePlacement() {
+    state.placementMode = false;
+    state.placementPreview.valid = false;
     canvas.focus();
   }
 
@@ -586,8 +736,12 @@
     state.kills = 0;
     state.keys.clear();
     state.queuedAttack = null;
+    state.placementMode = false;
+    state.placementPreview.valid = false;
     state.particles = [];
     state.projectiles = [];
+    state.woodDrops = [];
+    state.placedCampfires = [];
     state.powerCooldowns.fire = 0;
     state.powerCooldowns.water = 0;
     state.projectileVariantBags.fire = [];
@@ -597,6 +751,15 @@
     state.powerAim = { x: 0, y: 1 };
     state.petals = [];
     state.gems = [];
+    state.trees.forEach((tree) => Object.assign(tree, {
+      alive: true,
+      health: tree.maxHealth,
+      fallTime: 0,
+      hurtTime: 0,
+      regrowTimer: 0,
+      growth: 1,
+    }));
+    state.ruins = generateRuins(state.trees);
 
     Object.assign(state.player, {
       x: WORLD.width / 2,
@@ -645,6 +808,8 @@
 
     state.inventory.fire = false;
     state.inventory.blue = false;
+    state.inventory.wood = 0;
+    state.inventory.campfires = 0;
     fireGemIcon.classList.remove("collected");
     blueGemIcon.classList.remove("collected");
     fireGemIcon.classList.remove("cooling");
@@ -885,29 +1050,49 @@
   function damageEnemy(action) {
     const enemy = state.enemy;
     const player = state.player;
-    if (!enemy.alive || enemy.dying || player.attackHitApplied) return;
+    if (player.attackHitApplied) return;
 
     const forward = player.attackAim || directionVector(player.direction);
-    const relativeX = enemy.x - player.x;
-    const relativeY = enemy.y - player.y;
-    const forwardDistance = relativeX * forward.x + relativeY * forward.y;
-    const lateralDistance = Math.abs(relativeX * -forward.y + relativeY * forward.x);
-    const distance = Math.hypot(relativeX, relativeY);
     const attack = action === "attack1"
       ? { range: 120, width: 60, damage: 25, knockback: 25 }
       : { range: 132, width: 74, damage: 45, knockback: 42 };
-    const closeHit = distance <= 52;
-    const directionalHit = (
-      forwardDistance >= -10
-      && forwardDistance <= attack.range
-      && lateralDistance <= attack.width
-    );
+    const candidates = [];
 
-    if (!closeHit && !directionalHit) {
+    if (enemy.alive && !enemy.dying) {
+      candidates.push({ kind: "enemy", target: enemy });
+    }
+    for (const tree of state.trees) {
+      if (tree.alive && tree.growth >= 0.8) {
+        candidates.push({ kind: "tree", target: tree });
+      }
+    }
+
+    const hit = candidates
+      .map((candidate) => {
+        const relativeX = candidate.target.x - player.x;
+        const relativeY = candidate.target.y - player.y;
+        const forwardDistance = relativeX * forward.x + relativeY * forward.y;
+        const lateralDistance = Math.abs(relativeX * -forward.y + relativeY * forward.x);
+        const distance = Math.hypot(relativeX, relativeY);
+        const closeHit = distance <= (candidate.kind === "tree" ? 65 : 52);
+        const directionalHit = (
+          forwardDistance >= -10
+          && forwardDistance <= attack.range
+          && lateralDistance <= attack.width
+        );
+        return { ...candidate, distance, hittable: closeHit || directionalHit };
+      })
+      .filter((candidate) => candidate.hittable)
+      .sort((first, second) => first.distance - second.distance)[0];
+
+    if (!hit) return;
+    player.attackHitApplied = true;
+
+    if (hit.kind === "tree") {
+      damageTree(hit.target, action === "attack1" ? 1 : 2);
       return;
     }
 
-    player.attackHitApplied = true;
     const hitApplied = hitEnemy(
       attack.damage,
       forward,
@@ -916,6 +1101,28 @@
       enemy.type === "water" ? "#62cef1" : null,
     );
     if (hitApplied) playSound("slimeHurt", 0.94 + Math.random() * 0.12);
+  }
+
+  function damageTree(tree, amount) {
+    if (!tree.alive) return false;
+    tree.health = Math.max(0, tree.health - amount);
+    tree.hurtTime = 0.22;
+    spawnHitParticles(tree.x, tree.y - 42, "#b8733d", 7);
+
+    if (tree.health === 0) {
+      tree.alive = false;
+      tree.fallTime = 0;
+      tree.regrowTimer = TREE_REGROW_MIN + Math.random() * TREE_REGROW_VARIANCE;
+      tree.growth = 0;
+      state.woodDrops.push({
+        x: tree.x,
+        y: tree.y + 4,
+        active: true,
+        bobTime: Math.random() * Math.PI * 2,
+      });
+      spawnHitParticles(tree.x, tree.y - 28, "#8e542f", 15);
+    }
+    return true;
   }
 
   function unlockChests() {
@@ -1025,6 +1232,7 @@
 
   function resolveTreeCollisions(actor, radiusX, radiusY, actorCenterOffset) {
     for (const tree of state.trees) {
+      if (!tree.alive || tree.growth < 0.55) continue;
       const treeCenterY = tree.y - 10;
       const actorCenterY = actor.y - actorCenterOffset;
       let dx = actor.x - tree.x;
@@ -1041,6 +1249,83 @@
       actor.x = tree.x + dx / normalizedDistance;
       const resolvedCenterY = treeCenterY + dy / normalizedDistance;
       actor.y = resolvedCenterY + actorCenterOffset;
+    }
+  }
+
+  function resolveCampfireCollision(actor) {
+    for (const campfire of state.placedCampfires) {
+      const campfireCenterY = campfire.y - 8;
+      const actorCenterY = actor.y - 8;
+      let dx = actor.x - campfire.x;
+      let dy = actorCenterY - campfireCenterY;
+      let normalizedDistance = Math.hypot(dx / 44, dy / 28);
+
+      if (normalizedDistance >= 1) continue;
+      if (normalizedDistance < 0.001) {
+        dx = 0;
+        dy = 28;
+        normalizedDistance = 1;
+      }
+
+      actor.x = campfire.x + dx / normalizedDistance;
+      actor.y = campfireCenterY + dy / normalizedDistance + 8;
+    }
+  }
+
+  function resolveRuinCollisions(actor, actorCenterOffset = 8) {
+    for (const ruin of state.ruins) {
+      const config = RUIN_VARIANTS[ruin.variant];
+      const ruinCenterY = ruin.y - config.radiusY * 0.25;
+      const actorCenterY = actor.y - actorCenterOffset;
+      const radiusX = config.radiusX + 16;
+      const radiusY = config.radiusY + 10;
+      let dx = actor.x - ruin.x;
+      let dy = actorCenterY - ruinCenterY;
+      let normalizedDistance = Math.hypot(dx / radiusX, dy / radiusY);
+
+      if (normalizedDistance >= 1) continue;
+      if (normalizedDistance < 0.001) {
+        dx = 0;
+        dy = radiusY;
+        normalizedDistance = 1;
+      }
+
+      actor.x = ruin.x + dx / normalizedDistance;
+      actor.y = ruinCenterY + dy / normalizedDistance + actorCenterOffset;
+    }
+  }
+
+  function updateCampfire(dt) {
+    const player = state.player;
+    for (const campfire of state.placedCampfires) {
+      if (campfire.lit) campfire.animationTime += dt;
+      const distance = Math.hypot(player.x - campfire.x, player.y - campfire.y);
+      campfire.healing = (
+        campfire.lit
+        && distance <= CAMPFIRE_HEAL_RADIUS
+        && player.health < player.maxHealth
+      );
+
+      if (!campfire.healing) {
+        campfire.healProgress = 0;
+        campfire.particleTimer = 0;
+        continue;
+      }
+
+      campfire.healProgress += CAMPFIRE_HEAL_PER_SECOND * dt;
+      campfire.particleTimer -= dt;
+      const healAmount = Math.floor(campfire.healProgress);
+
+      if (healAmount > 0) {
+        player.health = Math.min(player.maxHealth, player.health + healAmount);
+        campfire.healProgress -= healAmount;
+        updateHealthUI();
+      }
+
+      if (campfire.particleTimer <= 0) {
+        campfire.particleTimer = 0.42;
+        spawnHitParticles(player.x, player.y - 5, "#77c96b", 3);
+      }
     }
   }
 
@@ -1065,6 +1350,27 @@
 
   function updateTrees(dt) {
     for (const tree of state.trees) {
+      tree.hurtTime = Math.max(0, tree.hurtTime - dt);
+      if (!tree.alive) {
+        tree.fallTime = Math.min(0.65, tree.fallTime + dt);
+        tree.regrowTimer = Math.max(0, tree.regrowTimer - dt);
+        if (tree.regrowTimer === 0) {
+          tree.alive = true;
+          tree.health = tree.maxHealth;
+          tree.growth = 0.06;
+          tree.animationTime = Math.random() * 2;
+          tree.petalTimer = 4 + Math.random() * 4;
+          spawnHitParticles(tree.x, tree.y - 2, "#79a85b", 8);
+        }
+        continue;
+      }
+      if (tree.growth < 1) {
+        const previousGrowth = tree.growth;
+        tree.growth = Math.min(1, tree.growth + dt / TREE_GROW_DURATION);
+        if (previousGrowth < 1 && tree.growth === 1) {
+          spawnHitParticles(tree.x, tree.y - 34, "#a5c56f", 7);
+        }
+      }
       tree.animationTime += dt;
       tree.petalTimer -= dt;
       if (tree.petalTimer <= 0) {
@@ -1084,6 +1390,19 @@
       }
     }
     state.petals = state.petals.filter((petal) => petal.groundedAge < 0.85);
+  }
+
+  function updateWoodDrops(dt) {
+    for (const wood of state.woodDrops) {
+      if (!wood.active) continue;
+      wood.bobTime += dt * 4;
+      if (Math.hypot(state.player.x - wood.x, state.player.y - wood.y) > 58) continue;
+      wood.active = false;
+      state.inventory.wood += 1;
+      spawnHitParticles(wood.x, wood.y - 4, "#d59a55", 9);
+      updateInventoryUI();
+    }
+    state.woodDrops = state.woodDrops.filter((wood) => wood.active);
   }
 
   function updateEnemy(dt) {
@@ -1149,6 +1468,8 @@
 
     resolveChestCollision(enemy, 62, 42, 22);
     resolveTreeCollisions(enemy, 43, 29, 22);
+    resolveRuinCollisions(enemy, 22);
+    resolveCampfireCollision(enemy);
 
     if (
       !enemy.attacking
@@ -1206,6 +1527,22 @@
       ) {
         projectile.active = false;
         continue;
+      }
+
+      if (projectile.type === "fire") {
+        const unlitCampfire = state.placedCampfires.find((campfire) => (
+          !campfire.lit
+          && Math.abs(campfire.x - projectile.x) <= 42
+          && Math.abs((campfire.y - 18) - projectile.y) <= 36
+        ));
+        if (unlitCampfire) {
+          projectile.active = false;
+          unlitCampfire.lit = true;
+          unlitCampfire.animationTime = 0;
+          spawnHitParticles(unlitCampfire.x, unlitCampfire.y - 16, "#ffb347", 18);
+          spawnHitParticles(unlitCampfire.x, unlitCampfire.y - 20, "#fff0a1", 8);
+          continue;
+        }
       }
 
       const enemy = state.enemy;
@@ -1441,8 +1778,11 @@
 
     resolveChestCollision(player, 57, 36, 8);
     resolveTreeCollisions(player, 38, 27, 8);
+    resolveRuinCollisions(player);
+    resolveCampfireCollision(player);
     player.x = Math.max(WORLD.margin, Math.min(WORLD.width - WORLD.margin, player.x));
     player.y = Math.max(WORLD.margin, Math.min(WORLD.height - WORLD.margin, player.y));
+    updateCampfire(dt);
 
     if (!attacking) {
       const nextAction = player.moving ? "run" : "idle";
@@ -1477,6 +1817,7 @@
     updateProjectiles(dt);
     updateEnemy(dt);
     updateTrees(dt);
+    updateWoodDrops(dt);
     updateParticles(dt);
     updateChests(dt);
     updateGems(dt);
@@ -1505,6 +1846,67 @@
       x: x - state.camera.x + state.width / 2,
       y: y - state.camera.y + state.height / 2,
     };
+  }
+
+  function canPlaceCampfire(x, y) {
+    if (
+      x < WORLD.margin + 45
+      || x > WORLD.width - WORLD.margin - 45
+      || y < WORLD.margin + 45
+      || y > WORLD.height - WORLD.margin - 45
+      || Math.hypot(x - state.player.x, y - state.player.y) > 310
+    ) {
+      return false;
+    }
+    if (state.trees.some((tree) => Math.hypot(x - tree.x, y - tree.y) < 82)) {
+      return false;
+    }
+    if (state.ruins.some((ruin) => {
+      const config = RUIN_VARIANTS[ruin.variant];
+      return Math.hypot(x - ruin.x, y - ruin.y) < config.radiusX + 62;
+    })) {
+      return false;
+    }
+    if (state.chests.some((chest) => Math.hypot(x - chest.x, y - chest.y) < 90)) {
+      return false;
+    }
+    return !state.placedCampfires.some(
+      (campfire) => Math.hypot(x - campfire.x, y - campfire.y) < 105,
+    );
+  }
+
+  function updatePlacementPreview(x, y) {
+    state.placementPreview.x = Math.max(WORLD.margin, Math.min(WORLD.width - WORLD.margin, x));
+    state.placementPreview.y = Math.max(WORLD.margin, Math.min(WORLD.height - WORLD.margin, y));
+    state.placementPreview.valid = canPlaceCampfire(
+      state.placementPreview.x,
+      state.placementPreview.y,
+    );
+  }
+
+  function placeCampfire() {
+    if (
+      !state.placementMode
+      || !state.placementPreview.valid
+      || state.inventory.campfires <= 0
+    ) {
+      return false;
+    }
+    const { x, y } = state.placementPreview;
+    state.placedCampfires.push({
+      x: Math.round(x),
+      y: Math.round(y),
+      lit: false,
+      animationTime: 0,
+      healProgress: 0,
+      particleTimer: 0,
+      healing: false,
+    });
+    state.inventory.campfires -= 1;
+    spawnHitParticles(x, y - 4, "#8f7053", 8);
+    cancelCampfirePlacement();
+    updateInventoryUI();
+    return true;
   }
 
   function aimFromPointer(event) {
@@ -1547,7 +1949,7 @@
     ctx.fillRect(0, 0, state.width, state.height);
 
     const topLeft = worldToScreen(0, 0);
-    ctx.fillStyle = "#fbfcfa";
+    ctx.fillStyle = "#eef0ec";
     ctx.fillRect(topLeft.x, topLeft.y, WORLD.width, WORLD.height);
 
     const minor = 32;
@@ -1693,17 +2095,70 @@
   function drawTree(tree) {
     const point = worldToScreen(tree.x, tree.y);
     const scale = 2.08;
-    const drawSize = 64 * scale;
+    const fullDrawSize = 64 * scale;
     const frame = Math.floor(tree.animationTime * tree.fps) % 16;
 
+    if (!tree.alive) {
+      ctx.save();
+      ctx.translate(point.x, point.y);
+      ctx.fillStyle = "#754122";
+      ctx.fillRect(-9, -8, 18, 10);
+      ctx.fillStyle = "#b4763d";
+      ctx.fillRect(-6, -8, 12, 3);
+      if (tree.fallTime < 0.62) {
+        const progress = tree.fallTime / 0.62;
+        ctx.globalAlpha = 1 - progress * 0.45;
+        ctx.rotate(progress * 1.25);
+        ctx.drawImage(
+          sprites.tree,
+          frame * 64,
+          0,
+          64,
+          64,
+          Math.round(-fullDrawSize / 2),
+          Math.round(-fullDrawSize),
+          fullDrawSize,
+          fullDrawSize,
+        );
+      }
+      ctx.restore();
+      return;
+    }
+
+    if (tree.growth < 0.2) {
+      const sproutHeight = 8 + Math.round((tree.growth / 0.2) * 18);
+      ctx.save();
+      ctx.translate(Math.round(point.x), Math.round(point.y));
+      ctx.fillStyle = "rgba(55, 35, 23, .13)";
+      ctx.fillRect(-9, -2, 18, 4);
+      ctx.fillStyle = "#674020";
+      ctx.fillRect(-3, -sproutHeight, 6, sproutHeight);
+      ctx.fillStyle = "#8dbe63";
+      ctx.fillRect(-11, -sproutHeight + 3, 9, 7);
+      ctx.fillRect(3, -sproutHeight + 7, 10, 7);
+      ctx.fillStyle = "#b2cf78";
+      ctx.fillRect(-8, -sproutHeight + 4, 5, 3);
+      ctx.fillRect(4, -sproutHeight + 8, 6, 3);
+      ctx.restore();
+      return;
+    }
+
+    const normalizedGrowth = Math.min(1, (tree.growth - 0.16) / 0.84);
+    const growthEase = normalizedGrowth * normalizedGrowth * (3 - 2 * normalizedGrowth);
+    const growthScale = 0.16 + growthEase * 0.84;
+    const drawSize = fullDrawSize * growthScale;
     ctx.save();
     ctx.translate(point.x, point.y);
     ctx.fillStyle = "rgba(55, 35, 23, .18)";
     ctx.beginPath();
-    ctx.ellipse(0, 1, 28, 10, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, -3, 28 * growthScale, 8 * growthScale, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
+    ctx.save();
+    if (tree.hurtTime > 0 && Math.floor(tree.hurtTime * 32) % 2 === 0) {
+      ctx.globalAlpha = 0.48;
+    }
     ctx.drawImage(
       sprites.tree,
       frame * 64,
@@ -1715,6 +2170,169 @@
       drawSize,
       drawSize,
     );
+    ctx.restore();
+  }
+
+  function drawWoodDrop(wood) {
+    const point = worldToScreen(wood.x, wood.y);
+    const bob = Math.sin(wood.bobTime) * 2;
+    ctx.save();
+    ctx.translate(point.x, point.y + bob);
+    ctx.fillStyle = "rgba(55, 34, 21, .18)";
+    ctx.beginPath();
+    ctx.ellipse(0, 3, 17, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#4c291a";
+    ctx.fillStyle = "#9c5b31";
+    ctx.save();
+    ctx.rotate(0.38);
+    ctx.fillRect(-16, -8, 31, 8);
+    ctx.strokeRect(-16, -8, 31, 8);
+    ctx.restore();
+    ctx.save();
+    ctx.rotate(-0.38);
+    ctx.fillRect(-16, -3, 31, 8);
+    ctx.strokeRect(-16, -3, 31, 8);
+    ctx.restore();
+    ctx.restore();
+  }
+
+  function drawRuin(ruin) {
+    const config = RUIN_VARIANTS[ruin.variant];
+    const point = worldToScreen(ruin.x, ruin.y);
+    const drawWidth = config.sw * config.scale;
+    const drawHeight = config.sh * config.scale;
+
+    ctx.save();
+    ctx.translate(point.x, point.y);
+    ctx.fillStyle = "rgba(48, 42, 35, .14)";
+    ctx.beginPath();
+    ctx.ellipse(
+      0,
+      -Math.max(4, config.radiusY * 0.24),
+      config.radiusX * 0.8,
+      Math.max(5, config.radiusY * 0.34),
+      0,
+      0,
+      Math.PI * 2,
+    );
+    ctx.fill();
+    ctx.scale(ruin.flip, 1);
+    ctx.drawImage(
+      sprites.ruins,
+      config.sx,
+      config.sy,
+      config.sw,
+      config.sh,
+      Math.round(-drawWidth / 2),
+      Math.round(-drawHeight),
+      drawWidth,
+      drawHeight,
+    );
+    ctx.restore();
+  }
+
+  function drawUnlitCampfire(point) {
+    ctx.save();
+    ctx.translate(Math.round(point.x), Math.round(point.y));
+
+    ctx.fillStyle = "rgba(55, 34, 22, .16)";
+    ctx.beginPath();
+    ctx.ellipse(0, -3, 30, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.translate(0, -18);
+
+    const stones = [
+      [-25, -8, 11, 8, "#766657"],
+      [-14, -14, 10, 8, "#918071"],
+      [2, -15, 11, 8, "#746558"],
+      [16, -9, 11, 8, "#8d7a68"],
+      [17, 1, 10, 7, "#66594e"],
+      [3, 5, 12, 7, "#857363"],
+      [-14, 5, 11, 7, "#695b4f"],
+      [-26, 0, 10, 7, "#8a7765"],
+    ];
+    for (const [x, y, width, height, color] of stones) {
+      ctx.fillStyle = "#473d35";
+      ctx.fillRect(x - 1, y - 1, width + 2, height + 2);
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, width, height);
+      ctx.fillStyle = "rgba(255,255,255,.13)";
+      ctx.fillRect(x + 2, y + 1, Math.max(2, width - 5), 2);
+    }
+
+    ctx.fillStyle = "#33261e";
+    ctx.fillRect(-17, -8, 34, 14);
+
+    const drawLog = (reverse) => {
+      for (let index = -3; index <= 3; index += 1) {
+        const x = index * 6;
+        const y = (reverse ? -index : index) * 3 - 4;
+        ctx.fillStyle = "#44271a";
+        ctx.fillRect(x - 6, y - 5, 13, 10);
+        ctx.fillStyle = "#8f4e29";
+        ctx.fillRect(x - 5, y - 3, 11, 6);
+        ctx.fillStyle = "#b66d37";
+        ctx.fillRect(x - 3, y - 2, 7, 2);
+      }
+    };
+    drawLog(false);
+    drawLog(true);
+
+    ctx.fillStyle = "#33251d";
+    ctx.fillRect(-7, -8, 14, 8);
+    ctx.fillStyle = "#5a3a27";
+    ctx.fillRect(-4, -7, 8, 3);
+    ctx.restore();
+  }
+
+  function drawCampfire(campfire) {
+    const point = worldToScreen(campfire.x, campfire.y);
+    const frame = Math.floor(campfire.animationTime * CAMPFIRE_FPS) % CAMPFIRE_FRAME_COUNT;
+    const drawWidth = CAMPFIRE_FRAME_WIDTH * CAMPFIRE_SCALE;
+    const drawHeight = CAMPFIRE_FRAME_HEIGHT * CAMPFIRE_SCALE;
+    const pulse = 0.5 + Math.sin(campfire.animationTime * 7) * 0.5;
+
+    ctx.save();
+    if (campfire.lit) {
+      const glow = ctx.createRadialGradient(point.x, point.y - 28, 8, point.x, point.y - 20, 88);
+      glow.addColorStop(0, `rgba(255, 174, 53, ${0.2 + pulse * 0.08})`);
+      glow.addColorStop(0.48, "rgba(255, 126, 36, .1)");
+      glow.addColorStop(1, "rgba(255, 109, 31, 0)");
+      ctx.fillStyle = glow;
+      ctx.fillRect(point.x - 92, point.y - 112, 184, 132);
+
+      ctx.fillStyle = "rgba(73, 39, 20, .2)";
+      ctx.beginPath();
+      ctx.ellipse(point.x, point.y - 3, 29, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    if (campfire.healing) {
+      ctx.strokeStyle = `rgba(94, 174, 83, ${0.42 + pulse * 0.18})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(point.x, point.y, 58 + pulse * 3, 25 + pulse * 2, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    if (campfire.lit) {
+      ctx.drawImage(
+        sprites.campfire,
+        frame * CAMPFIRE_FRAME_WIDTH,
+        0,
+        CAMPFIRE_FRAME_WIDTH,
+        CAMPFIRE_FRAME_HEIGHT,
+        Math.round(point.x - drawWidth / 2),
+        Math.round(point.y - drawHeight + 10),
+        drawWidth,
+        drawHeight,
+      );
+    } else {
+      drawUnlitCampfire(point);
+    }
   }
 
   function drawSlime() {
@@ -2059,8 +2677,17 @@
     const entities = [
       { y: state.player.y, draw: drawPlayer },
     ];
+    for (const campfire of state.placedCampfires) {
+      entities.push({ y: campfire.y, draw: () => drawCampfire(campfire) });
+    }
     for (const tree of state.trees) {
       entities.push({ y: tree.y, draw: () => drawTree(tree) });
+    }
+    for (const wood of state.woodDrops) {
+      entities.push({ y: wood.y, draw: () => drawWoodDrop(wood) });
+    }
+    for (const ruin of state.ruins) {
+      entities.push({ y: ruin.y, draw: () => drawRuin(ruin) });
     }
     for (const chest of state.chests) {
       if (chest.active) {
@@ -2119,10 +2746,45 @@
     ctx.restore();
   }
 
+  function drawPlacementPreview() {
+    if (!state.placementMode) return;
+    const preview = state.placementPreview;
+    const point = worldToScreen(preview.x, preview.y);
+    const color = preview.valid ? "93, 181, 91" : "195, 61, 57";
+
+    ctx.save();
+    ctx.globalAlpha = 0.64;
+    drawCampfire({
+      x: preview.x,
+      y: preview.y,
+      lit: false,
+      animationTime: 0,
+      healing: false,
+    });
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = `rgba(${color}, .9)`;
+    ctx.fillStyle = `rgba(${color}, .12)`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(point.x, point.y, 47, 27, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = preview.valid ? "#3e7137" : "#8f2d2b";
+    ctx.font = "900 9px Courier New";
+    ctx.textAlign = "center";
+    ctx.fillText(
+      preview.valid ? "CLIQUE PARA POSICIONAR" : "LOCAL BLOQUEADO",
+      point.x,
+      point.y - 48,
+    );
+    ctx.restore();
+  }
+
   function render() {
     drawArena();
     drawRainSplashes();
     if (state.loaded) drawEntities();
+    drawPlacementPreview();
     drawRainStreaks();
     drawKillProgress();
     drawCornerCoordinates();
@@ -2150,6 +2812,7 @@
 
     if (event.code === "KeyI") {
       event.preventDefault();
+      if (state.placementMode) cancelCampfirePlacement();
       if (state.inventoryOpen) closeInventory();
       else if (!event.repeat) openInventory();
       return;
@@ -2165,6 +2828,10 @@
 
     if (event.code === "Escape") {
       event.preventDefault();
+      if (state.placementMode) {
+        cancelCampfirePlacement();
+        return;
+      }
       if (!state.hasStarted) return;
       if (state.paused) closeMenu();
       else openMenu();
@@ -2216,6 +2883,15 @@
   canvas.addEventListener("pointerdown", (event) => {
     if (state.paused) return;
     canvas.focus();
+    if (state.placementMode && (event.button === 0 || event.pointerType === "touch")) {
+      const rect = canvas.getBoundingClientRect();
+      updatePlacementPreview(
+        event.clientX - rect.left - state.width / 2 + state.camera.x,
+        event.clientY - rect.top - state.height / 2 + state.camera.y,
+      );
+      if (placeCampfire()) event.preventDefault();
+      return;
+    }
     const pointedChest = chestAtPointer(event);
     if (
       (event.button === 0 || event.pointerType === "touch")
@@ -2234,6 +2910,14 @@
   });
   canvas.addEventListener("pointermove", (event) => {
     if (event.pointerType !== "mouse" || state.paused) return;
+    if (state.placementMode) {
+      const rect = canvas.getBoundingClientRect();
+      updatePlacementPreview(
+        event.clientX - rect.left - state.width / 2 + state.camera.x,
+        event.clientY - rect.top - state.height / 2 + state.camera.y,
+      );
+      return;
+    }
     state.powerAim = aimFromPointer(event).vector;
   });
   canvas.addEventListener("contextmenu", (event) => event.preventDefault());
@@ -2295,12 +2979,22 @@
   retryButton.addEventListener("click", () => resetRun(true));
   gameOverMenuButton.addEventListener("click", () => resetRun(false));
   inventoryCloseButton.addEventListener("click", closeInventory);
-  [inventoryFireItem, inventoryBlueItem, inventoryFoxItem].forEach((item) => {
+  craftCampfireButton.addEventListener("click", craftCampfire);
+  inventoryCampfireItem.addEventListener("click", beginCampfirePlacement);
+  [
+    inventoryFireItem,
+    inventoryBlueItem,
+    inventoryFoxItem,
+    inventoryWoodItem,
+    inventoryCampfireItem,
+  ].forEach((item) => {
     item.addEventListener("pointerenter", () => showInventoryItemDetail(item));
     item.addEventListener("focus", () => showInventoryItemDetail(item));
     item.addEventListener("pointerleave", updateInventoryUI);
     item.addEventListener("blur", updateInventoryUI);
-    item.addEventListener("click", () => showInventoryItemDetail(item));
+    if (item !== inventoryCampfireItem) {
+      item.addEventListener("click", () => showInventoryItemDetail(item));
+    }
   });
 
   resize();
